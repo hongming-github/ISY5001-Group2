@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+pydantic
+# 其他依赖

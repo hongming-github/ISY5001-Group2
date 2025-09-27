@@ -1,0 +1,21 @@
+version: "3.9"
+services:
+  fastapi:
+    build: ./backend  # FastAPI 项目的目录
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - APP_NAME=FastAPI App
+
+  streamlit:
+    build: ./frontend  # Streamlit 项目的目录
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./frontend:/app
+    depends_on:
+      - fastapi
+    environment:
+      - APP_NAME=Streamlit App
