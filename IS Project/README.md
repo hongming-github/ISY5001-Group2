@@ -1,11 +1,17 @@
-# Health Monitoring ML App
+# Health Monitoring & Chatbot App
 
-This project is a **machine learning application** with:  
+This project is a **machine learning application** with:
 
-- **Frontend**: [Streamlit](https://streamlit.io/) — user interface to enter health data.  
-- **Backend**: [FastAPI](https://fastapi.tiangolo.com/) — API server to process input data.  
-- **Processor**: `data_processor.py` — contains logic for parsing and analyzing health metrics.  
-- **Deployment**: [Docker Compose](https://docs.docker.com/compose/) — runs frontend and backend services together.  
+- **Frontend**: [Streamlit](https://streamlit.io/) — user interface for data entry and chatting.  
+- **Backend**: [FastAPI](https://fastapi.tiangolo.com/) — API server with two endpoints:  
+  - `/submit` → process vital signs  
+  - `/chat` → chatbot with integrated recommendation model  
+- **Logic Modules**:  
+  - `vital_signs_processor.py` → defines `HealthData` model and processes vital signs  
+  - `chatbot.py` → handles chatbot logic, including recommendation calls  
+  - `recommender.py` → contains the elderly activity recommendation logic  
+
+Deployment is managed with [Docker Compose](https://docs.docker.com/compose/).
 
 ---
 
@@ -13,17 +19,19 @@ This project is a **machine learning application** with:
 
 ```
 .
-├── backend                   # Backend project
-├──── main.py                 # FastAPI backend (API server)
-├──── data_processor.py       # Data processing & ML logic
-├──── requirements.txt        # Python dependencies (backend)
-├──── Dockerfile              # Base Dockerfile (for building app image)
-├── frontend                  # Frontend project
-├──── streamlit_app.py        # Streamlit frontend (UI form)
-├──── requirements.txt        # Python dependencies (frontend)
-├──── Dockerfile              # Base Dockerfile (for building app image)
-├── docker-compose.yml        # Compose file (orchestration)
-└── README.md                 # Documentation
+├──── backend                # Backend
+├── main.py                  # FastAPI entrypoint
+├── vital_signs_processor.py # HealthData model + vital signs processing
+├── chatbot.py               # Chatbot logic (integrated with recommender)
+├── recommender.py           # Elderly activity recommendation model
+├── requirements.txt         # Python dependencies
+├──Dockerfile                # Container build definition
+├──── frontend               # Frontend
+├── streamlit_app.py         # Streamlit frontend (form + chat UI)
+├── requirements.txt         # Python dependencies
+├── Dockerfile               # Container build definition
+├──── docker-compose.yml     # Service orchestration
+└──── README.md              # Documentation
 ```
 
 ---
@@ -50,28 +58,23 @@ docker compose up --build
 ```
 
 This will:  
-- Build the images from `Dockerfile`  
-- Start **FastAPI** backend (default: `http://localhost:8000`)  
-- Start **Streamlit** frontend (default: `http://localhost:8501`)  
+- Build the image(s) from `Dockerfile`  
+- Start **FastAPI backend** (default: `http://localhost:8000`)  
+- Start **Streamlit frontend** (default: `http://localhost:8501`)  
 
 ### 3. Access the Application
-- Open frontend in browser: **http://localhost:8501**  
-- Streamlit UI provides input boxes for:
-  - Device ID  
-  - Blood Pressure (Systolic/Diastolic)  
-  - Heart Rate  
-  - Blood Glucose  
-  - Blood Oxygen  
-  - Timestamp (manual or current time)  
 
-On submit, the data is sent to the backend.
+- **Frontend (UI)**: [http://localhost:8501](http://localhost:8501)  
+- **Backend (API)**: [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI)  
 
 ---
 
-## 🔗 API Endpoint
+## 🔗 API Endpoints
 
 ### POST `/submit`
-- **Request Body** (JSON):
+
+**Request Body (JSON):**
+
 ```json
 {
   "device_id": "ABC123",
@@ -79,11 +82,12 @@ On submit, the data is sent to the backend.
   "heart_rate": 72,
   "blood_glucose": 95,
   "blood_oxygen": 98,
-  "timestamp": "2025-09-26T10:15:30"
+  "timestamp": "2025-09-29T10:15:30"
 }
 ```
 
-- **Response**:
+**Response:**
+
 ```json
 {
   "status": "processed",
@@ -95,8 +99,39 @@ On submit, the data is sent to the backend.
     "blood_glucose": 95,
     "blood_oxygen": 98,
     "health_score": 122.5,
-    "timestamp": "2025-09-26T10:15:30"
+    "timestamp": "2025-09-29T10:15:30"
   }
+}
+```
+
+---
+
+### POST `/chat`
+
+**Request Body (JSON):**
+
+```json
+{
+  "history": [
+    {"role": "user", "content": "hello"}
+  ],
+  "message": "recommend activities",
+  "context_vitals": {
+    "device_id": "ABC123",
+    "blood_pressure": "150/95",
+    "heart_rate": 88,
+    "blood_glucose": 165,
+    "blood_oxygen": 96,
+    "timestamp": "2025-09-29T07:45:00Z"
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "reply": "Based on your current readings (BP 150/95, HR 88, GLU 165, SpO2 96), here are my recommended activities:\n- Post-meal walk (intensity: low)\n- Tai Chi / Qigong (intensity: low)"
 }
 ```
 
@@ -104,11 +139,11 @@ On submit, the data is sent to the backend.
 
 ## 🏗 Code Flow
 
-1. **Streamlit UI** collects user input.  
-2. Data sent via **HTTP POST** to FastAPI `/submit`.  
-3. **FastAPI** validates input (`pydantic` models).  
-4. Data passed to **`data_processor.py`** for parsing/ML processing.  
-5. Processed results returned as JSON and displayed in Streamlit.  
+1. **Streamlit UI** collects user input or chat messages.  
+2. **FastAPI `/submit`** → validates input with `HealthData`, calls `process_vital_signs`.  
+3. **FastAPI `/chat`** → handles conversation logic via `chatbot.py`, optionally invokes `recommender`.  
+4. **`vital_signs_processor.py`** centralizes vital signs model & processing logic.  
+5. **`recommender.py`** provides activity recommendations based on health status.  
 
 ---
 

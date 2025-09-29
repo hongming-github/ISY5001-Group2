@@ -1,24 +1,24 @@
-# 使用官方 Python 镜像作为基础镜像
-FROM python:3.9-slim-buster
+# Use Python 3.11 slim image
+FROM python:3.11-slim
 
-# 设置工作目录
+# set the working directory in the container
 WORKDIR /app
 
-# 复制 requirements.txt 文件到工作目录
+# copy the requirements file into the container
 COPY requirements.txt .
 
-# 安装依赖并显式检查streamlit是否安装成功
+# install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip list | grep streamlit || (echo "Streamlit installation failed" && exit 1)
 
-# 复制项目文件到工作目录
+# copy the current directory contents into the container at /app
 COPY . .
 
-# 验证应用文件是否存在
+# verify that the main application file exists
 RUN ls -la streamlit_app.py || (echo "streamlit_app.py not found" && exit 1)
 
-# 暴露端口
+# expose port 8501 for Streamlit
 EXPOSE 8501
 
-# 定义启动命令，确保使用正确的参数
+# define environment variable
 CMD ["streamlit", "run", "streamlit_app.py", "--server.port=8501", "--server.address=0.0.0.0"]
