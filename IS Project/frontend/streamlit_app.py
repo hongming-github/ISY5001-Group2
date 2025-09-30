@@ -45,15 +45,62 @@ with tab_form:
 with tab_chat:
     st.caption("Ask about your readings or say *recommend activities*.")
 
+    # Inject custom CSS for chat bubbles
+    st.markdown(
+        """
+        <style>
+        .user-bubble {
+            background-color: #f1f0f0;
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin: 10px 5px;
+            text-align: right;
+            max-width: 70%;
+            float: right;
+            clear: both;
+        }
+        .bot-bubble {
+            background-color: #e6f4ea;
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin: 10px 5px;
+            text-align: left;
+            max-width: 70%;
+            float: left;
+            clear: both;
+        }
+        .retrieved-context {
+            font-size: 0.9em;
+            color: #555;
+            background-color: #f9f9f9;
+            border-left: 4px solid #ccc;
+            padding: 10px;
+            margin: 10px 5px;
+            clear: both;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # Show chat history
+    # Render chat history
     for turn in st.session_state.chat_history:
-        with st.chat_message(turn["role"]):
-            st.markdown(turn["content"])
+        if turn["role"] == "user":
+            st.markdown(f"<div class='user-bubble'>{turn['content']}</div>", unsafe_allow_html=True)
+        elif turn["role"] == "assistant":
+            st.markdown(f"<div class='bot-bubble'>{turn['content']}</div>", unsafe_allow_html=True)
+            if "retrieved" in turn:
+                st.markdown(
+                    "<div class='retrieved-context'>📚 Retrieved Context (with similarity scores):<br>"
+                    + "<br>".join([f"- {ctx}" for ctx in turn["retrieved"]])
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
 
-    # Input prompt
+    # Input box
     prompt = st.chat_input("Type your message…")
     if prompt:
         st.session_state.chat_history.append({"role": "user", "content": prompt})
@@ -82,14 +129,9 @@ with tab_chat:
             answer = f"Request failed: {e}"
             retrieved = []
 
-        # Save assistant answer in history
-        st.session_state.chat_history.append({"role": "assistant", "content": answer})
-        with st.chat_message("assistant"):
-            st.markdown(answer)
+        # Save assistant answer
+        st.session_state.chat_history.append(
+            {"role": "assistant", "content": answer, "retrieved": retrieved}
+        )
 
-            # Show retrieved docs if available
-            if retrieved:
-                st.markdown("**📚 Retrieved Context (with similarity scores):**")
-                for ctx_item in retrieved:
-                    st.markdown(f"- {ctx_item}")
-
+        st.rerun()
