@@ -1,5 +1,19 @@
+# Web framework
 fastapi
 uvicorn[standard]
 pydantic
 joblib
-# Other dependencies
+
+# Vector store + RAG
+langchain
+langchain-community
+langchain-pinecone
+langchain-openai
+pinecone
+openai
+
+# LLM API 
+volcengine-python-sdk[ark]
+
+# Utils
+python-dotenv

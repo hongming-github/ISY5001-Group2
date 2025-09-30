@@ -57,7 +57,7 @@ with tab_chat:
     prompt = st.chat_input("Type your message…")
     if prompt:
         st.session_state.chat_history.append({"role": "user", "content": prompt})
-        # Placeholder context, this can be anything relevant
+
         ctx = {
             "device_id": device_id,
             "blood_pressure": blood_pressure,
@@ -74,11 +74,22 @@ with tab_chat:
         }
 
         try:
-            resp = requests.post(f"{BACKEND}/chat", json=payload, timeout=10)
-            reply = resp.json().get("reply", "") if resp.ok else f"Error: {resp.text}"
+            resp = requests.post(f"{BACKEND}/chat", json=payload, timeout=60)
+            data = resp.json() if resp.ok else {}
+            answer = data.get("answer") or data.get("reply", "")
+            retrieved = data.get("retrieved", [])
         except Exception as e:
-            reply = f"Request failed: {e}"
+            answer = f"Request failed: {e}"
+            retrieved = []
 
-        st.session_state.chat_history.append({"role": "assistant", "content": reply})
+        # Save assistant answer in history
+        st.session_state.chat_history.append({"role": "assistant", "content": answer})
         with st.chat_message("assistant"):
-            st.markdown(reply)
+            st.markdown(answer)
+
+            # Show retrieved docs if available
+            if retrieved:
+                st.markdown("**📚 Retrieved Context (with similarity scores):**")
+                for ctx_item in retrieved:
+                    st.markdown(f"- {ctx_item}")
+

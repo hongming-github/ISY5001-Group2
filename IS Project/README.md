@@ -1,17 +1,12 @@
-# Health Monitoring & Chatbot App
+# ISY5001-Group2 Matching Pattern Project
 
-This project is a **machine learning application** with:
+This project is a **full-stack RAG (Retrieval-Augmented Generation) system** for elderly health knowledge assistance.  
+It integrates:
 
-- **Frontend**: [Streamlit](https://streamlit.io/) — user interface for data entry and chatting.  
-- **Backend**: [FastAPI](https://fastapi.tiangolo.com/) — API server with two endpoints:  
-  - `/submit` → process vital signs  
-  - `/chat` → chatbot with integrated recommendation model  
-- **Logic Modules**:  
-  - `vital_signs_processor.py` → defines `HealthData` model and processes vital signs  
-  - `chatbot.py` → handles chatbot logic, including recommendation calls  
-  - `recommender.py` → contains the elderly activity recommendation logic  
-
-Deployment is managed with [Docker Compose](https://docs.docker.com/compose/).
+- **Frontend**: Streamlit UI (for vital signs input & chatbot interface)  
+- **Backend**: FastAPI API service (for data processing & chatbot logic)  
+- **RAG Knowledge Base**: Pinecone vector database + Doubao API (embedding + LLM)  
+- **Containerization**: Docker Compose for one-click setup  
 
 ---
 
@@ -19,138 +14,130 @@ Deployment is managed with [Docker Compose](https://docs.docker.com/compose/).
 
 ```
 .
-├──── backend                # Backend
-├── main.py                  # FastAPI entrypoint
-├── vital_signs_processor.py # HealthData model + vital signs processing
-├── chatbot.py               # Chatbot logic (integrated with recommender)
-├── recommender.py           # Elderly activity recommendation model
-├── requirements.txt         # Python dependencies
-├──Dockerfile                # Container build definition
-├──── frontend               # Frontend
-├── streamlit_app.py         # Streamlit frontend (form + chat UI)
-├── requirements.txt         # Python dependencies
-├── Dockerfile               # Container build definition
-├──── docker-compose.yml     # Service orchestration
-└──── README.md              # Documentation
+├── backend/
+│   ├── main.py                       # FastAPI entrypoint
+│   ├── vital_signs_processor.py      # Business logic for vital signs
+│   ├── chatbot/
+│   │   ├──── docs/                   # Knowledge base
+│   │   ├──── elderly_health_qa.txt   # health knowledge
+│   │   ├── chatbot_service.py        # Chatbot handler
+│   │   ├── rag.py                    # RAG workflow (search + QA chain)
+│   │   ├── rag_utils.py              # Pinecone + Doubao embeddings/LLM config
+│   │   └── build_index.py            # Build Pinecone index from TXT files
+│   └── recommender.py                # Elderly activity recommendation model
+├── frontend/
+│   └── streamlit_app.py              # Streamlit UI
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## 🚀 How to Run
+## ⚙️ Environment Setup
 
-### 1. Prerequisites
-- Docker  
-- Docker Compose  
+### 1. Create `.env`
+In the project root, add a `.env` file:
 
-Check installation:
+```ini
+# Pinecone
+PINECONE_API_KEY=your-pinecone-api-key
+PINECONE_ENVIRONMENT=us-east-1
 
+# Doubao (Ark API)
+OPENAI_API_KEY=your-doubao-api-key
+OPENAI_API_BASE=https://ark.cn-beijing.volces.com/api/v3
+```
+
+⚠️ Use `OPENAI_API_KEY` and `OPENAI_API_BASE` for compatibility with `langchain-openai`.
+
+---
+
+## 🐳 Run with Docker Compose
+
+Build and start services:
 ```bash
-docker -v
-docker compose version
+docker compose build
+docker compose up
 ```
 
-### 2. Build and Start Services
+- FastAPI backend → http://localhost:8000  
+- Streamlit frontend → http://localhost:8501  
 
-From the project root, run:
+---
 
+## 📚 Build Knowledge Base
+
+All `.txt` files should be placed in:
+```
+backend/chatbot/docs/
+```
+
+Run the index builder:
 ```bash
-docker compose up --build
+docker compose run --rm fastapi python chatbot/build_index.py
 ```
 
-This will:  
-- Build the image(s) from `Dockerfile`  
-- Start **FastAPI backend** (default: `http://localhost:8000`)  
-- Start **Streamlit frontend** (default: `http://localhost:8501`)  
-
-### 3. Access the Application
-
-- **Frontend (UI)**: [http://localhost:8501](http://localhost:8501)  
-- **Backend (API)**: [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI)  
+This script will:
+- Load all `.txt` files
+- Split them into chunks
+- Embed them with Doubao
+- Upload to Pinecone
 
 ---
 
-## 🔗 API Endpoints
+## 💬 Chatbot Usage
 
-### POST `/submit`
+1. Open Streamlit UI → http://localhost:8501  
+2. Switch to **Chatbot** tab  
+3. Ask questions such as:  
+   > "How can high blood pressure be prevented?"  
 
-**Request Body (JSON):**
-
-```json
-{
-  "device_id": "ABC123",
-  "blood_pressure": "120/80",
-  "heart_rate": 72,
-  "blood_glucose": 95,
-  "blood_oxygen": 98,
-  "timestamp": "2025-09-29T10:15:30"
-}
-```
-
-**Response:**
-
-```json
-{
-  "status": "processed",
-  "result": {
-    "device_id": "ABC123",
-    "systolic": 120,
-    "diastolic": 80,
-    "heart_rate": 72,
-    "blood_glucose": 95,
-    "blood_oxygen": 98,
-    "health_score": 122.5,
-    "timestamp": "2025-09-29T10:15:30"
-  }
-}
-```
+### Returned Result
+- **Answer**: Generated summary based on retrieved documents  
+- **Retrieved Context**: Shows top-k documents with similarity scores  
 
 ---
 
-### POST `/chat`
+## 🔀 Modes
 
-**Request Body (JSON):**
+You can switch answer modes in `rag.py`:
 
-```json
-{
-  "history": [
-    {"role": "user", "content": "hello"}
-  ],
-  "message": "recommend activities",
-  "context_vitals": {
-    "device_id": "ABC123",
-    "blood_pressure": "150/95",
-    "heart_rate": 88,
-    "blood_glucose": 165,
-    "blood_oxygen": 96,
-    "timestamp": "2025-09-29T07:45:00Z"
-  }
-}
-```
+- **Summary mode (default)**:  
+  Uses LangChain QA Chain (`load_qa_chain`) to generate a summarized answer.
 
-**Response:**
+- **Top-1 mode**:  
+  Returns only the highest-ranked document content:  
 
-```json
-{
-  "reply": "Based on your current readings (BP 150/95, HR 88, GLU 165, SpO2 96), here are my recommended activities:\n- Post-meal walk (intensity: low)\n- Tai Chi / Qigong (intensity: low)"
-}
-```
+  ```python
+  top_doc, score = docs_and_scores[0]
+  return {"answer": top_doc.page_content, "retrieved": context_with_scores}
+  ```
 
 ---
 
-## 🏗 Code Flow
+## 🧪 Timeout Configuration
 
-1. **Streamlit UI** collects user input or chat messages.  
-2. **FastAPI `/submit`** → validates input with `HealthData`, calls `process_vital_signs`.  
-3. **FastAPI `/chat`** → handles conversation logic via `chatbot.py`, optionally invokes `recommender`.  
-4. **`vital_signs_processor.py`** centralizes vital signs model & processing logic.  
-5. **`recommender.py`** provides activity recommendations based on health status.  
+- **LLM / Embeddings**: Configured with `request_timeout=60`  
+- **Frontend (Streamlit)**: `requests.post(..., timeout=60)`  
+- **Backend (FastAPI)**: default Uvicorn timeout is used, can be tuned in `docker-compose.yml`.
 
 ---
 
-## 🛑 Stopping Services
+## ✅ Requirements
 
-Press `CTRL+C` in terminal, then clean up with:
-
+See `requirements.txt` for full dependencies (FastAPI, Streamlit, LangChain, Pinecone, OpenAI SDK, python-dotenv, etc.).  
+Install locally with:
 ```bash
-docker compose down
+pip install -r requirements.txt
 ```
+
+---
+
+## 📌 Notes
+- Ensure `.env` is correctly mounted in Docker.  
+- Pinecone index must be built before querying.  
+- Doubao API keys are compatible with `langchain-openai` by setting `OPENAI_API_KEY`.  
+
+---
