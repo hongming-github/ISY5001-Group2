@@ -17,3 +17,5 @@ volcengine-python-sdk[ark]
 
 # Utils
 python-dotenv
+httpx
+dotenv
