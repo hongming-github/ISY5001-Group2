@@ -2,4 +2,7 @@ fastapi
 uvicorn[standard]
 pydantic
 joblib
+
 # Other dependencies
+httpx
+dotenv
