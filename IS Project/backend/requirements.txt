@@ -1,8 +1,21 @@
+# Web framework
 fastapi
 uvicorn[standard]
 pydantic
 joblib
 
-# Other dependencies
+# Vector store + RAG
+langchain
+langchain-community
+langchain-pinecone
+langchain-openai
+pinecone
+openai
+
+# Utils
+python-dotenv
 httpx
 dotenv
+
+sentence-transformers
+scikit-learn
