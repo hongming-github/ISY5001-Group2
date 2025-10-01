@@ -12,10 +12,10 @@ langchain-openai
 pinecone
 openai
 
-# LLM API 
-volcengine-python-sdk[ark]
-
 # Utils
 python-dotenv
 httpx
 dotenv
+
+sentence-transformers
+scikit-learn

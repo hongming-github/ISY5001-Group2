@@ -1,32 +1,135 @@
-# ISY5001-Group2 Matching Pattern Project
+# Intelligent Care and Resource Matching Platform
 
-This project is a **full-stack RAG (Retrieval-Augmented Generation) system** for elderly health knowledge assistance.  
-It integrates:
+## 📌 Overview
+This project is a **health-focused chatbot system** that integrates:
+- **Frontend:** Streamlit web interface (chat UI + vital signs input)
+- **Backend:** FastAPI (REST API service)
+- **RAG Pipeline:** Pinecone + OpenAI (or Doubao) for knowledge retrieval and Q&A
+- **Recommendation Engine:** Suggests physical activities based on user input
+- **Hybrid Intent Routing:** Rule-based triggers + ML-based intent classifier + fallback RAG
 
-- **Frontend**: Streamlit UI (for vital signs input & chatbot interface)  
-- **Backend**: FastAPI API service (for data processing & chatbot logic)  
-- **RAG Knowledge Base**: Pinecone vector database + Doubao API (embedding + LLM)  
-- **Containerization**: Docker Compose for one-click setup  
+---
+
+## ⚙️ Architecture
+```
++-----------------+        +-------------------+
+|   Streamlit UI  | <----> |   FastAPI Backend |
++-----------------+        +-------------------+
+          |                          |
+          v                          v
+   Activity Recommender        RAG Knowledge Base (Pinecone + LLM)
+          |                          |
+          +------------> Hybrid Routing <------------+
+```
+
+### Hybrid Routing Logic
+1. **Rule-based priority**: Explicit keywords like `recommend`, `activity`, `suggestion` → Activity recommender.  
+2. **ML classifier** (`all-MiniLM-L6-v2` + Logistic Regression): Classifies input into  
+   - `recommend_activity`
+   - `health_qa`
+   - `chitchat`
+3. **Fallback**: If none of the above, send to RAG.
+
+---
+
+## 🧭 Intent Routing Flow
+
+```mermaid
+flowchart TD
+    A[User Input] --> B{Rule-based match?}
+    B -- Yes --> C[Activity Recommender]
+    B -- No --> D{Intent Classifier}
+    D -- recommend_activity --> C[Activity Recommender]
+    D -- health_qa --> E[RAG Pipeline Pinecone LLM]
+    D -- chitchat --> F[Fallback Response]
+    D -- unknown --> E
+```
+
+---
+
+## 🚀 Getting Started
+
+### 1. Clone the repository
+```bash
+git clone <your-repo-url>
+cd IS Project
+```
+
+### 2. Environment variables
+Create a `.env` file in the project root:
+```env
+OPENAI_API_KEY=your_api_key_here
+PINECONE_API_KEY=your_pinecone_key_here
+PINECONE_ENV=your_pinecone_env
+```
+
+### 3. Build and start services
+```bash
+docker compose up --build
+```
+
+- FastAPI backend → [http://localhost:8000/docs](http://localhost:8000/docs)  
+- Streamlit frontend → [http://localhost:8501](http://localhost:8501)
+
+---
+
+### 4. Train intent classifier (first time only)
+Before using the chatbot, train the classifier:
+
+```bash
+docker compose run --rm fastapi python backend/chatbot/train_intent.py
+```
+
+This will generate:
+
+```
+backend/chatbot/intent_clf.pkl
+```
+
+---
+
+### 5. Build the RAG index (first time only)
+If you add/update knowledge base documents (e.g., `elderly_health_qa.txt`), you must rebuild the index:
+
+```bash
+docker compose run --rm fastapi python backend/chatbot/build_index.py
+```
+
+This uploads embeddings to Pinecone and makes them available for retrieval.
+
+---
+
+### 6. Restart services after training
+```bash
+docker compose up
+```
+
+Now:
+- The chatbot can classify intents using the trained classifier  
+- The RAG pipeline can answer knowledge-base questions  
+
+---
+
+### 7. Access the UI
+Open your browser → [http://localhost:8501](http://localhost:8501)
 
 ---
 
 ## 📂 Project Structure
-
 ```
 .
 ├── backend/
-│   ├── main.py                       # FastAPI entrypoint
-│   ├── vital_signs_processor.py      # Business logic for vital signs
 │   ├── chatbot/
-│   │   ├──── docs/                   # Knowledge base
-│   │   ├──── elderly_health_qa.txt   # health knowledge
-│   │   ├── chatbot_service.py        # Chatbot handler
-│   │   ├── rag.py                    # RAG workflow (search + QA chain)
-│   │   ├── rag_utils.py              # Pinecone + Doubao embeddings/LLM config
-│   │   └── build_index.py            # Build Pinecone index from TXT files
-│   └── recommender.py                # Elderly activity recommendation model
+│   │   ├── rag_utils.py         # Pinecone + LLM setup
+│   │   ├── rag.py               # RAG answer pipeline
+│   │   ├── build_index.py       # Build Pinecone index from txt/pdf
+│   │   ├── intent_classifier.py # ML-based intent classifier
+│   │   └── chatbot_service.py   # Hybrid routing logic
+│   ├── recommender.py           # Activity recommendation logic
+│   ├── vital_signs_processor.py # Vital signs handling (optional)
+│   └── main.py                  # FastAPI entrypoint
 ├── frontend/
-│   └── streamlit_app.py              # Streamlit UI
+│   └── streamlit_app.py         # Chat UI with chat-like bubbles
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
@@ -35,109 +138,43 @@ It integrates:
 
 ---
 
-## ⚙️ Environment Setup
+## 📦 Dependencies
+Key dependencies (see `requirements.txt` for full list):
+- `fastapi`
+- `uvicorn`
+- `streamlit`
+- `langchain`
+- `langchain-openai`
+- `langchain-pinecone`
+- `pinecone-client`
+- `sentence-transformers` (downloads **all-MiniLM-L6-v2** automatically)
+- `scikit-learn`
 
-### 1. Create `.env`
-In the project root, add a `.env` file:
-
-```ini
-# Pinecone
-PINECONE_API_KEY=your-pinecone-api-key
-PINECONE_ENVIRONMENT=us-east-1
-
-# Doubao (Ark API)
-OPENAI_API_KEY=your-doubao-api-key
-OPENAI_API_BASE=https://ark.cn-beijing.volces.com/api/v3
-```
-
-⚠️ Use `OPENAI_API_KEY` and `OPENAI_API_BASE` for compatibility with `langchain-openai`.
-
----
-
-## 🐳 Run with Docker Compose
-
-Build and start services:
-```bash
-docker compose build
-docker compose up
-```
-
-- FastAPI backend → http://localhost:8000  
-- Streamlit frontend → http://localhost:8501  
-
----
-
-## 📚 Build Knowledge Base
-
-All `.txt` files should be placed in:
-```
-backend/chatbot/docs/
-```
-
-Run the index builder:
-```bash
-docker compose run --rm fastapi python chatbot/build_index.py
-```
-
-This script will:
-- Load all `.txt` files
-- Split them into chunks
-- Embed them with Doubao
-- Upload to Pinecone
-
----
-
-## 💬 Chatbot Usage
-
-1. Open Streamlit UI → http://localhost:8501  
-2. Switch to **Chatbot** tab  
-3. Ask questions such as:  
-   > "How can high blood pressure be prevented?"  
-
-### Returned Result
-- **Answer**: Generated summary based on retrieved documents  
-- **Retrieved Context**: Shows top-k documents with similarity scores  
-
----
-
-## 🔀 Modes
-
-You can switch answer modes in `rag.py`:
-
-- **Summary mode (default)**:  
-  Uses LangChain QA Chain (`load_qa_chain`) to generate a summarized answer.
-
-- **Top-1 mode**:  
-  Returns only the highest-ranked document content:  
-
-  ```python
-  top_doc, score = docs_and_scores[0]
-  return {"answer": top_doc.page_content, "retrieved": context_with_scores}
-  ```
-
----
-
-## 🧪 Timeout Configuration
-
-- **LLM / Embeddings**: Configured with `request_timeout=60`  
-- **Frontend (Streamlit)**: `requests.post(..., timeout=60)`  
-- **Backend (FastAPI)**: default Uvicorn timeout is used, can be tuned in `docker-compose.yml`.
-
----
-
-## ✅ Requirements
-
-See `requirements.txt` for full dependencies (FastAPI, Streamlit, LangChain, Pinecone, OpenAI SDK, python-dotenv, etc.).  
-Install locally with:
-```bash
-pip install -r requirements.txt
+### Note on `all-MiniLM-L6-v2`
+- This model will be automatically downloaded from Hugging Face the first time you run the container.  
+- To ensure smooth builds in Docker, you can pre-download it in `Dockerfile`:
+```dockerfile
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 ```
 
 ---
 
-## 📌 Notes
-- Ensure `.env` is correctly mounted in Docker.  
-- Pinecone index must be built before querying.  
-- Doubao API keys are compatible with `langchain-openai` by setting `OPENAI_API_KEY`.  
+## 📊 Example Queries
+
+- **Activity Recommendation**
+  > "Can you recommend some activities?"  
+  ✅ Routed to activity recommender
+
+- **Health Q&A**
+  > "What is the normal blood pressure for elderly?"  
+  ✅ Routed to RAG (knowledge base)
+
+- **Chitchat**
+  > "Hello, how are you?"  
+  ✅ Routed to fallback
 
 ---
+
+## 🙌 Team Notes
+- This project is designed for **course demo** purposes.  
+- For production, we recommend replacing the simple classifier with a more robust intent detection model and securing `.env` secrets properly.

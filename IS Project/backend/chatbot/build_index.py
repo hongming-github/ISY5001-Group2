@@ -34,7 +34,7 @@ def upload_all_txt(docs_dir: str = "chatbot/docs"):
         embedding=embeddings,
         index_name=INDEX_NAME,
     )
-    print(f"✅ Uploaded {len(all_docs)} chunks from {len([d for d in os.listdir(docs_dir) if d.endswith('.txt')])} files to Pinecone.")
+    print(f"Uploaded {len(all_docs)} chunks from {len([d for d in os.listdir(docs_dir) if d.endswith('.txt')])} files to Pinecone.")
 
 def remove_records_in_index(index_name: str):
     """Remove all vectors and records in the index"""

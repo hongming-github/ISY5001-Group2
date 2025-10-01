@@ -11,9 +11,6 @@ pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 
 INDEX_NAME = "health-knowledge-vector"
 
-# if INDEX_NAME not in pinecone.list_indexes():
-#     pinecone.create_index(INDEX_NAME, dimension=2560, metric="cosine")
-
 embeddingModel = "doubao-embedding-text-240715"
 llmModel = "deepseek-v3-1-250821"
 
@@ -39,24 +36,3 @@ class DoubaoEmbeddings:
 
     def embed_query(self, text):
         return self.embed_documents([text])[0]
-    
-# class ArkEmbeddings:
-#     def embed_documents(self, texts):
-#         resp = client.embeddings.create(model=embeddingModel, input=texts, encoding_format="float")
-#         return [d.embedding for d in resp.data]
-
-#     def embed_query(self, text):
-#         return self.embed_documents([text])[0]
-
-# # ---------------- LLM Wrapper ----------------
-# class ArkLLM:
-#     """Minimal wrapper to let Ark work with LangChain chains"""
-#     def __init__(self, model=llmModel):
-#         self.model = model
-
-#     def __call__(self, prompt: str) -> str:
-#         resp = client.chat.completions.create(
-#             model=self.model,
-#             messages=[{"role": "user", "content": prompt}]
-#         )
-#         return resp.choices[0].message.content
