@@ -6,6 +6,10 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from haversine import haversine
 
+
+print("Loading SentenceTransformer model...")  
+MODEL = SentenceTransformer('all-MiniLM-L6-v2')  
+
 # -----------------------------
 # Language filter
 # -----------------------------
@@ -38,17 +42,24 @@ def time_slot_penalty(activity_slot, user_time_slots):
 # -----------------------------
 # Multi-rule filtering
 # -----------------------------
-def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat, user_lon, max_distance=20):
+def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat, user_lon, max_distance=50):
     # df['registration_closing_date'] = pd.to_datetime(df['registration_closing_date'], errors='coerce')
     # df = df[(df['registration_closing_date'].isna()) | (df['registration_closing_date'] > pd.Timestamp.now())]
 
+    initial_count = len(df)
+    print(f"初始数量: {initial_count}")
+
     # Step 1: Language filter
+    before = len(df)
     df = language_filter(df, user_languages)
+    after = len(df)
+    # print(f"语言过滤: {before} -> {after} (过滤掉 {before - after})")
 
     # Step 2: Timeliness + capacity filter
     # df = df[(df['registration_closing_date'] > pd.Timestamp.now()) & (df['enrolled'] < df['capacity'])]
 
     # Step 3: Geographic filter
+    before = len(df)
     user_coords = (user_lat, user_lon)
     distances = []
     for lat, lon in zip(df['lat'], df['lon']):
@@ -60,6 +71,8 @@ def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat
     df = df.copy()
     df.loc[:, 'distance'] = distances
     df = df[df['distance'] <= max_distance]
+    after = len(df)
+    # print(f"地理过滤 (<= {max_distance} km): {before} -> {after} (过滤掉 {before - after})")    
 
     # Step 4: Time slot penalty
     df['is_wrong_time_slot'] = df['time_slot'].apply(lambda x: time_slot_penalty(x, user_time_slots))
@@ -103,7 +116,7 @@ def comprehensive_score(df, user_vector, user_budget, user_need_free, user_inter
 
  
     # Distance normalization
-    max_dist = 20
+    max_dist = 50
     df['normalized_distance'] = df['distance'].apply(lambda x: min(x / max_dist, 1.0))
 
     # Composite score
@@ -140,6 +153,34 @@ def main(user_interests, user_languages, user_time_slots,
         print(f"Failed to read data: {e}")
         return pd.DataFrame()
 
+    # 处理缺失参数的默认值
+    # 1. 语言缺失则默认英语
+    if not user_languages or len(user_languages) == 0:
+        user_languages = ["English"]
+    
+    # 2. 时段缺失则早中晚都可以
+    if not user_time_slots or len(user_time_slots) == 0:
+        user_time_slots = ["morning", "afternoon", "evening"]
+    
+    # 3. 预算缺失可以设置为999
+    if user_budget is None or user_budget <= 0:
+        user_budget = 999.0
+    
+    # 4. need_free缺失则默认为false
+    if user_need_free is None:
+        user_need_free = False
+    
+    # 5. 经纬度缺失则默认不考虑距离的计算
+    skip_distance_filter = False
+    if user_lat is None or user_lon is None or (user_lat == 0.0 and user_lon == 0.0):
+        skip_distance_filter = True
+        user_lat = 0.0
+        user_lon = 0.0
+    
+    # 6. sourcetype缺失则默认全选
+    if not sourcetypes or len(sourcetypes) == 0:
+        sourcetypes = None
+
     # Source type filter (default to all if None/empty)
     valid_types = {"course", "event", "interest_group"}
     if sourcetypes:
@@ -148,18 +189,51 @@ def main(user_interests, user_languages, user_time_slots,
         if len(selected) > 0 and 'source_type' in df.columns:
             df = df[df['source_type'].str.lower().isin(selected)]
 
-    # Multi-rule filtering
-    df = multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat, user_lon)
+    # 7. 兴趣缺失则从活动中随机抽取五条
+    user_interests = [i for i in user_interests if i.strip()]
+    if not user_interests or len(user_interests) == 0:
+        print("No user interests provided, returning random activities")
+        random_activities = df.sample(n=min(5, len(df)))
+
+        # 添加必要的字段
+        random_activities = random_activities.copy()
+        random_activities['score'] = 0.5  # 随机推荐给个中等分数
+        random_activities['InterestScore'] = 0.5
+        random_activities['remaining'] = random_activities['capacity'] - random_activities['enrolled']
+        
+        # 计算距离（如果提供了坐标）
+        if not skip_distance_filter:
+            user_coords = (user_lat, user_lon)
+            distances = []
+            for lat, lon in zip(random_activities['lat'], random_activities['lon']):
+                try:
+                    dist = haversine(user_coords, (lat, lon))
+                    distances.append(dist)
+                except:
+                    distances.append(float('inf'))
+            random_activities['distance'] = distances
+        else:
+            random_activities['distance'] = 0.0
+        
+        return random_activities[['title', 'category', 'description', 'score', 'InterestScore',
+                                  'language', 'distance', 'remaining', 'date',
+                                  'start_time', 'end_time', 'price_num', 'source_type']]
+
+    # Multi-rule filtering (修改以支持跳过距离过滤)
+    if skip_distance_filter:
+        # 跳过距离过滤的版本
+        df = language_filter(df, user_languages)
+        df['is_wrong_time_slot'] = df['time_slot'].apply(lambda x: time_slot_penalty(x, user_time_slots))
+        df['distance'] = 0.0  # 设置距离为0，表示不考虑距离
+    else:
+        df = multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat, user_lon)
+    
     if len(df) == 0:
         print("No activities match after multi-rule filtering")
         return pd.DataFrame()
 
     # Load model
-    try:
-        model = SentenceTransformer('all-MiniLM-L6-v2')
-    except Exception as e:
-        print(f"Failed to load model: {e}")
-        return pd.DataFrame()
+    model = MODEL
 
     # User interest vector: average multiple interests
     user_interest_vecs = model.encode(user_interests)
@@ -191,9 +265,17 @@ def main(user_interests, user_languages, user_time_slots,
         activity_text = enhance_with_keywords(activity_text, user_interests, weight=3)
         activity_texts.append(activity_text)
 
-    df['activity_text'] = activity_texts
-    df['activity_vector'] = list(generate_vectors(df['activity_text'].tolist(), model))
+    # df['activity_text'] = activity_texts
+    # df['activity_vector'] = list(generate_vectors(df['activity_text'].tolist(), model))
+    base_dir = os.path.dirname(__file__)
+    data_path = os.path.join(base_dir, "data", "activities_with_vec.pkl")
+    df_with_vec = pd.read_pickle(data_path)
 
+    df = df.merge(
+        df_with_vec[['title', 'activity_vector']], 
+        on='title', 
+        how='left'
+    )
 
     # Compute composite score
     df = comprehensive_score(df, user_vector, user_budget, user_need_free, user_interests)
@@ -228,5 +310,5 @@ def main(user_interests, user_languages, user_time_slots,
     # top_5['reason'] = reasons
 
     return top_5[['title', 'category', 'description', 'score', 'InterestScore',
-                  'language', 'distance', 'remaining', 'date',
+                  'language', 'distance', 'date',
                   'start_time', 'end_time', 'price_num', 'source_type']]

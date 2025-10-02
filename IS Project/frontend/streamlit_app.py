@@ -162,7 +162,7 @@ with tab_chat:
                 "message": last_user_message,
                 "context_vitals": ctx
             }
-
+            data = {}
             try:
                 resp = requests.post(f"{BACKEND}/chat", json=payload, timeout=60)
                 data = resp.json() if resp.ok else {}
@@ -178,7 +178,7 @@ with tab_chat:
 
             # Add real assistant response
             st.session_state.chat_history.append(
-                {"role": "assistant", "content": answer, "retrieved": retrieved}
+                {"role": "assistant", "content": answer, "retrieved": retrieved, "flow_tag": data.get("flow_tag", None)}
             )
 
             st.rerun()
