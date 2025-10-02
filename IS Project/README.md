@@ -1,156 +1,180 @@
-# Health Monitoring & Chatbot App
+# Intelligent Care and Resource Matching Platform
 
-This project is a **machine learning application** with:
-
-- **Frontend**: [Streamlit](https://streamlit.io/) — user interface for data entry and chatting.  
-- **Backend**: [FastAPI](https://fastapi.tiangolo.com/) — API server with two endpoints:  
-  - `/submit` → process vital signs  
-  - `/chat` → chatbot with integrated recommendation model  
-- **Logic Modules**:  
-  - `vital_signs_processor.py` → defines `HealthData` model and processes vital signs  
-  - `chatbot.py` → handles chatbot logic, including recommendation calls  
-  - `recommender.py` → contains the elderly activity recommendation logic  
-
-Deployment is managed with [Docker Compose](https://docs.docker.com/compose/).
+## 📌 Overview
+This project is a **health-focused chatbot system** that integrates:
+- **Frontend:** Streamlit web interface (chat UI + vital signs input)
+- **Backend:** FastAPI (REST API service)
+- **RAG Pipeline:** Pinecone + OpenAI (or Doubao) for knowledge retrieval and Q&A
+- **Recommendation Engine:** Suggests physical activities based on user input
+- **Hybrid Intent Routing:** Rule-based triggers + ML-based intent classifier + fallback RAG
 
 ---
 
-## 📂 Project Structure
-
+## ⚙️ Architecture
 ```
-.
-├──── backend                # Backend
-├── main.py                  # FastAPI entrypoint
-├── vital_signs_processor.py # HealthData model + vital signs processing
-├── chatbot.py               # Chatbot logic (integrated with recommender)
-├── recommender.py           # Elderly activity recommendation model
-├── requirements.txt         # Python dependencies
-├──Dockerfile                # Container build definition
-├──── frontend               # Frontend
-├── streamlit_app.py         # Streamlit frontend (form + chat UI)
-├── requirements.txt         # Python dependencies
-├── Dockerfile               # Container build definition
-├──── docker-compose.yml     # Service orchestration
-└──── README.md              # Documentation
++-----------------+        +-------------------+
+|   Streamlit UI  | <----> |   FastAPI Backend |
++-----------------+        +-------------------+
+          |                          |
+          v                          v
+   Activity Recommender        RAG Knowledge Base (Pinecone + LLM)
+          |                          |
+          +------------> Hybrid Routing <------------+
+```
+
+### Hybrid Routing Logic
+1. **Rule-based priority**: Explicit keywords like `recommend`, `activity`, `suggestion` → Activity recommender.  
+2. **ML classifier** (`all-MiniLM-L6-v2` + Logistic Regression): Classifies input into  
+   - `recommend_activity`
+   - `health_qa`
+   - `chitchat`
+3. **Fallback**: If none of the above, send to RAG.
+
+---
+
+## 🧭 Intent Routing Flow
+
+```mermaid
+flowchart TD
+    A[User Input] --> B{Rule-based match?}
+    B -- Yes --> C[Activity Recommender]
+    B -- No --> D{Intent Classifier}
+    D -- recommend_activity --> C[Activity Recommender]
+    D -- health_qa --> E[RAG Pipeline Pinecone LLM]
+    D -- chitchat --> F[Fallback Response]
+    D -- unknown --> E
 ```
 
 ---
 
-## 🚀 How to Run
+## 🚀 Getting Started
 
-### 1. Prerequisites
-- Docker  
-- Docker Compose  
-
-Check installation:
-
+### 1. Clone the repository
 ```bash
-docker -v
-docker compose version
+git clone <your-repo-url>
+cd IS Project
 ```
 
-### 2. Build and Start Services
+### 2. Environment variables
+Create a `.env` file in the project root:
+```env
+OPENAI_API_KEY=your_api_key_here
+PINECONE_API_KEY=your_pinecone_key_here
+PINECONE_ENV=your_pinecone_env
+```
 
-From the project root, run:
-
+### 3. Build and start services
 ```bash
 docker compose up --build
 ```
 
-This will:  
-- Build the image(s) from `Dockerfile`  
-- Start **FastAPI backend** (default: `http://localhost:8000`)  
-- Start **Streamlit frontend** (default: `http://localhost:8501`)  
-
-### 3. Access the Application
-
-- **Frontend (UI)**: [http://localhost:8501](http://localhost:8501)  
-- **Backend (API)**: [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI)  
+- FastAPI backend → [http://localhost:8000/docs](http://localhost:8000/docs)  
+- Streamlit frontend → [http://localhost:8501](http://localhost:8501)
 
 ---
 
-## 🔗 API Endpoints
-
-### POST `/submit`
-
-**Request Body (JSON):**
-
-```json
-{
-  "device_id": "ABC123",
-  "blood_pressure": "120/80",
-  "heart_rate": 72,
-  "blood_glucose": 95,
-  "blood_oxygen": 98,
-  "timestamp": "2025-09-29T10:15:30"
-}
-```
-
-**Response:**
-
-```json
-{
-  "status": "processed",
-  "result": {
-    "device_id": "ABC123",
-    "systolic": 120,
-    "diastolic": 80,
-    "heart_rate": 72,
-    "blood_glucose": 95,
-    "blood_oxygen": 98,
-    "health_score": 122.5,
-    "timestamp": "2025-09-29T10:15:30"
-  }
-}
-```
-
----
-
-### POST `/chat`
-
-**Request Body (JSON):**
-
-```json
-{
-  "history": [
-    {"role": "user", "content": "hello"}
-  ],
-  "message": "recommend activities",
-  "context_vitals": {
-    "device_id": "ABC123",
-    "blood_pressure": "150/95",
-    "heart_rate": 88,
-    "blood_glucose": 165,
-    "blood_oxygen": 96,
-    "timestamp": "2025-09-29T07:45:00Z"
-  }
-}
-```
-
-**Response:**
-
-```json
-{
-  "reply": "Based on your current readings (BP 150/95, HR 88, GLU 165, SpO2 96), here are my recommended activities:\n- Post-meal walk (intensity: low)\n- Tai Chi / Qigong (intensity: low)"
-}
-```
-
----
-
-## 🏗 Code Flow
-
-1. **Streamlit UI** collects user input or chat messages.  
-2. **FastAPI `/submit`** → validates input with `HealthData`, calls `process_vital_signs`.  
-3. **FastAPI `/chat`** → handles conversation logic via `chatbot.py`, optionally invokes `recommender`.  
-4. **`vital_signs_processor.py`** centralizes vital signs model & processing logic.  
-5. **`recommender.py`** provides activity recommendations based on health status.  
-
----
-
-## 🛑 Stopping Services
-
-Press `CTRL+C` in terminal, then clean up with:
+### 4. Train intent classifier (first time only)
+Before using the chatbot, train the classifier:
 
 ```bash
-docker compose down
+docker compose run --rm fastapi python backend/chatbot/train_intent.py
 ```
+
+This will generate:
+
+```
+backend/chatbot/intent_clf.pkl
+```
+
+---
+
+### 5. Build the RAG index (first time only)
+If you add/update knowledge base documents (e.g., `elderly_health_qa.txt`), you must rebuild the index:
+
+```bash
+docker compose run --rm fastapi python backend/chatbot/build_index.py
+```
+
+This uploads embeddings to Pinecone and makes them available for retrieval.
+
+---
+
+### 6. Restart services after training
+```bash
+docker compose up
+```
+
+Now:
+- The chatbot can classify intents using the trained classifier  
+- The RAG pipeline can answer knowledge-base questions  
+
+---
+
+### 7. Access the UI
+Open your browser → [http://localhost:8501](http://localhost:8501)
+
+---
+
+## 📂 Project Structure
+```
+.
+├── backend/
+│   ├── chatbot/
+│   │   ├── rag_utils.py         # Pinecone + LLM setup
+│   │   ├── rag.py               # RAG answer pipeline
+│   │   ├── build_index.py       # Build Pinecone index from txt/pdf
+│   │   ├── intent_classifier.py # ML-based intent classifier
+│   │   └── chatbot_service.py   # Hybrid routing logic
+│   ├── recommender.py           # Activity recommendation logic
+│   ├── vital_signs_processor.py # Vital signs handling (optional)
+│   └── main.py                  # FastAPI entrypoint
+├── frontend/
+│   └── streamlit_app.py         # Chat UI with chat-like bubbles
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 📦 Dependencies
+Key dependencies (see `requirements.txt` for full list):
+- `fastapi`
+- `uvicorn`
+- `streamlit`
+- `langchain`
+- `langchain-openai`
+- `langchain-pinecone`
+- `pinecone-client`
+- `sentence-transformers` (downloads **all-MiniLM-L6-v2** automatically)
+- `scikit-learn`
+
+### Note on `all-MiniLM-L6-v2`
+- This model will be automatically downloaded from Hugging Face the first time you run the container.  
+- To ensure smooth builds in Docker, you can pre-download it in `Dockerfile`:
+```dockerfile
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
+```
+
+---
+
+## 📊 Example Queries
+
+- **Activity Recommendation**
+  > "Can you recommend some activities?"  
+  ✅ Routed to activity recommender
+
+- **Health Q&A**
+  > "What is the normal blood pressure for elderly?"  
+  ✅ Routed to RAG (knowledge base)
+
+- **Chitchat**
+  > "Hello, how are you?"  
+  ✅ Routed to fallback
+
+---
+
+## 🙌 Team Notes
+- This project is designed for **course demo** purposes.  
+- For production, we recommend replacing the simple classifier with a more robust intent detection model and securing `.env` secrets properly.

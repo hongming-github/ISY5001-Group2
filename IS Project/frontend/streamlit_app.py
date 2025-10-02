@@ -45,40 +45,140 @@ with tab_form:
 with tab_chat:
     st.caption("Ask about your readings or say *recommend activities*.")
 
+    # Inject custom CSS for chat bubbles + typing animation
+    st.markdown(
+        """
+        <style>
+        .user-bubble {
+            background-color: #f1f0f0;
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin: 10px 5px;
+            text-align: right;
+            max-width: 70%;
+            float: right;
+            clear: both;
+        }
+        .bot-bubble {
+            background-color: #e6f4ea;
+            padding: 10px 15px;
+            border-radius: 15px;
+            margin: 10px 5px;
+            text-align: left;
+            max-width: 70%;
+            float: left;
+            clear: both;
+        }
+        .retrieved-context {
+            font-size: 0.9em;
+            color: #555;
+            background-color: #f9f9f9;
+            border-left: 4px solid #ccc;
+            padding: 10px;
+            margin: 10px 5px;
+            clear: both;
+        }
+        /* Typing dots animation */
+        .typing {
+            display: inline-block;
+        }
+        .typing span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            margin: 0 2px;
+            background: #555;
+            border-radius: 50%;
+            animation: blink 1.4s infinite both;
+        }
+        .typing span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        .typing span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        @keyframes blink {
+            0% { opacity: 0.2; }
+            20% { opacity: 1; }
+            100% { opacity: 0.2; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
-    # Show chat history
+    # Render chat history
     for turn in st.session_state.chat_history:
-        with st.chat_message(turn["role"]):
-            st.markdown(turn["content"])
+        if turn["role"] == "user":
+            st.markdown(f"<div class='user-bubble'>{turn['content']}</div>", unsafe_allow_html=True)
+        elif turn["role"] == "assistant":
+            st.markdown(f"<div class='bot-bubble'>{turn['content']}</div>", unsafe_allow_html=True)
+            if "retrieved" in turn and turn["retrieved"]:
+                retrieved_list = turn["retrieved"] or []
+                st.markdown(
+                    "<div class='retrieved-context'>📚 Retrieved Context (with similarity scores):<br>"
+                    + "<br>".join([f"- {ctx}" for ctx in retrieved_list])
+                    + "</div>",
+                    unsafe_allow_html=True,
+                )
 
-    # Input prompt
+    # Chat input
     prompt = st.chat_input("Type your message…")
     if prompt:
+        # Save user input
         st.session_state.chat_history.append({"role": "user", "content": prompt})
-        # Placeholder context, this can be anything relevant
-        ctx = {
-            "device_id": device_id,
-            "blood_pressure": blood_pressure,
-            "heart_rate": int(heart_rate) if heart_rate else 0,
-            "blood_glucose": int(blood_glucose) if blood_glucose else 0,
-            "blood_oxygen": int(blood_oxygen) if blood_oxygen else 0,
-            "timestamp": timestamp or None,
-        }
 
-        payload = {
-            "history": st.session_state.chat_history[:-1],
-            "message": prompt,
-            "context_vitals": ctx
-        }
+        # Temporary assistant "typing..." bubble
+        st.session_state.chat_history.append(
+            {"role": "assistant", "content": "<div class='typing'><span></span><span></span><span></span></div>"}
+        )
 
-        try:
-            resp = requests.post(f"{BACKEND}/chat", json=payload, timeout=10)
-            reply = resp.json().get("reply", "") if resp.ok else f"Error: {resp.text}"
-        except Exception as e:
-            reply = f"Request failed: {e}"
+        st.rerun()
 
-        st.session_state.chat_history.append({"role": "assistant", "content": reply})
-        with st.chat_message("assistant"):
-            st.markdown(reply)
+    # If last message is typing animation → fetch real answer
+    if st.session_state.chat_history and "typing" in st.session_state.chat_history[-1]["content"]:
+        # Get last user message
+        last_user_message = None
+        for turn in reversed(st.session_state.chat_history):
+            if turn["role"] == "user":
+                last_user_message = turn["content"]
+                break
+
+        if last_user_message:
+            ctx = {
+                "device_id": device_id,
+                "blood_pressure": blood_pressure,
+                "heart_rate": int(heart_rate) if heart_rate else 0,
+                "blood_glucose": int(blood_glucose) if blood_glucose else 0,
+                "blood_oxygen": int(blood_oxygen) if blood_oxygen else 0,
+                "timestamp": timestamp or None,
+            }
+
+            payload = {
+                "history": st.session_state.chat_history[:-2],  # exclude typing bubble
+                "message": last_user_message,
+                "context_vitals": ctx
+            }
+
+            try:
+                resp = requests.post(f"{BACKEND}/chat", json=payload, timeout=60)
+                data = resp.json() if resp.ok else {}
+                answer = data.get("answer") or data.get("reply", "")
+                retrieved = data.get("retrieved", [])
+            except Exception as e:
+                answer = f"Request failed: {e}"
+                retrieved = []
+
+            # Remove typing bubble
+            if "typing" in st.session_state.chat_history[-1]["content"]:
+                st.session_state.chat_history.pop()
+
+            # Add real assistant response
+            st.session_state.chat_history.append(
+                {"role": "assistant", "content": answer, "retrieved": retrieved}
+            )
+
+            st.rerun()

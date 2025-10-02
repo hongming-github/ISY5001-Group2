@@ -4,7 +4,9 @@ from typing import List, Optional
 from recommendation_model import main as rec_main
 from fastapi.middleware.cors import CORSMiddleware
 from vital_signs_processor import HealthData, process_vital_signs
-from chatbot import ChatRequest, ChatResponse, handle_chat
+from chatbot.chatbot_service import ChatRequest, ChatResponse, handle_chat
+from dotenv import load_dotenv
+import os
 #import joblib
 
 app = FastAPI()
@@ -22,6 +24,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Load .env file automatically
+load_dotenv()
 
 # Load your ML model here
 #model = joblib.load("your_model.joblib")  
