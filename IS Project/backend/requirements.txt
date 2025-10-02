@@ -2,6 +2,13 @@ fastapi
 uvicorn[standard]
 pydantic
 joblib
+pandas
+sentence-transformers
+scikit-learn
+geopy
+haversine
+numpy
+openpyxl
 
 # Other dependencies
 httpx
