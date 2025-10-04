@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 from datetime import datetime, timezone
+import uuid
 
 BACKEND = "http://fastapi:8000"
 
@@ -43,7 +44,7 @@ with tab_form:
             st.error(f"Request failed: {e}")
 
 with tab_chat:
-    st.caption("Ask about your readings or say *recommend activities*.")
+    st.caption("Ask about *health-related questions* or say *recommend activities*.")
 
     # Inject custom CSS for chat bubbles + typing animation
     st.markdown(
@@ -107,6 +108,9 @@ with tab_chat:
         unsafe_allow_html=True
     )
 
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -149,18 +153,13 @@ with tab_chat:
 
         if last_user_message:
             ctx = {
-                "device_id": device_id,
-                "blood_pressure": blood_pressure,
-                "heart_rate": int(heart_rate) if heart_rate else 0,
-                "blood_glucose": int(blood_glucose) if blood_glucose else 0,
-                "blood_oxygen": int(blood_oxygen) if blood_oxygen else 0,
-                "timestamp": timestamp or None,
             }
 
             payload = {
+                "session_id": st.session_state.session_id,
                 "history": st.session_state.chat_history[:-2],  # exclude typing bubble
                 "message": last_user_message,
-                "context_vitals": ctx
+                "context": ctx
             }
             data = {}
             try:

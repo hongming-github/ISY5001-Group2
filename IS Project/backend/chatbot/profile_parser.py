@@ -11,17 +11,17 @@ class ProfileParser:
     def __init__(self):
         self.client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            base_url=os.getenv("OPENAI_API_BASE")
         )
-        self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+        self.model = os.getenv("OPENAI_MODEL", "deepseek-v3-1-250821")
     
     def parse_user_profile(self, user_message: str, conversation_history: List[Dict] = None) -> Dict:
-        
-        # 构建提示词
+        print(f"conversation_history: {conversation_history}")
+        # construct prompt
         prompt = self._build_parsing_prompt(user_message, conversation_history)
         
         try:
-            # 调用OpenAI API
+            # call LLM
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -32,7 +32,7 @@ class ProfileParser:
                 max_tokens=500
             )
             
-            # 解析响应
+            # parse response
             result = response.choices[0].message.content.strip()
             profile = self._parse_llm_response(result)
             
@@ -91,7 +91,6 @@ Return only the JSON object, no other text:
         try:
             # 尝试直接解析JSON
             profile = json.loads(response)
-            
             # 验证和清理数据
             return self._validate_and_clean_profile(profile)
             
@@ -121,7 +120,6 @@ Return only the JSON object, no other text:
             "location": str(profile.get("location", "")).strip(),
             "sourcetypes": self._clean_sourcetypes(profile.get("sourcetypes"))
         }
-        
         return cleaned_profile
     
     def _clean_list(self, value) -> List[str]:

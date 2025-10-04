@@ -1,11 +1,13 @@
 from typing import List, Dict, Optional
 from pydantic import BaseModel
+import re
 
-from vital_signs_processor import HealthData, process_vital_signs
-from recommender import ElderlyActivityRecommender, VitalInput
+from vital_signs_processor import HealthData
+from recommender import ElderlyActivityRecommender
 from chatbot.rag import rag_answer
 from chatbot.intent_classifier import IntentClassifier
 from chatbot.profile_parser import ProfileParser
+from chatbot.context_manager import ContextManager
 
 # Initialize recommender (load model if any)
 recommender = ElderlyActivityRecommender(model_path=None)
@@ -13,6 +15,8 @@ recommender = ElderlyActivityRecommender(model_path=None)
 intent_clf = IntentClassifier()
 # Initialize profile parser
 profile_parser = ProfileParser()
+# Initialize context manager
+context_manager = ContextManager()
 
 class ChatTurn(BaseModel):
     role: str
@@ -21,9 +25,10 @@ class ChatTurn(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    session_id: str = "default"
     history: List[ChatTurn] = []
     message: str
-    context_vitals: Optional[HealthData] = None
+    context: Optional[Dict] = None
     profile: Optional[Dict] = None
 
 
@@ -36,86 +41,117 @@ class ChatResponse(BaseModel):
 def handle_chat(payload):
     user_msg = payload.message.lower()
     original_msg = payload.message
+    session_id = payload.session_id or "default"
+    print(f"session_id: {session_id}")
+    history = context_manager.get_history(session_id, limit=3)
+    # Store user message in context manager
+    context_manager.add_message(session_id, "user", original_msg)
+    
 
     # 1. Rule-based intent detection (highest priority)
     # Keywords that strongly indicate recommendation request
     rec_keywords = ["recommend", "activity", "suggestion", "recommendation", "suggest"]
     if any(k in user_msg for k in rec_keywords):
-        if not payload.profile or not payload.profile.get("interests"):
-            return {
-                "answer": (
-                    "Sure! To recommend activities, could you tell me:\n"
-                    "- Your interests (e.g., yoga, tai chi)\n"
-                    "- Preferred language\n"
-                    "- Preferred time slots (morning/afternoon/evening)\n"
-                    "- Your budget (number)\n"
-                    "- Do you prefer free activities?\n"
-                    "- Your location\n"
-                ),
-                "result": [],
-                "flow_tag": "REC_FLOW"
-            }
         
-        # 如果 profile 已经有了，就直接调用推荐系统
-        print(f"[recommend-keyword] Profile for recommendation: {payload.profile}")
-        recs = recommender.recommend(profile=payload.profile, vitals=None)
-        print(f"[recommend-keyword] Recs count: {len(recs) if recs else 0}")
+        profile = context_manager.get_profile(session_id)
+
+        # parse user profile from current message + recent history
+        profile = profile_parser.parse_user_profile(
+            user_msg, conversation_history=history
+        )
+        profile = profile_parser.enhance_profile_with_location(profile)
+
+        profile = context_manager.update_profile(session_id, profile)
+  
+        # Check if profile is complete
+        # required_fields = ["interests", "language", "time", "budget", "location"]
+        required_fields = ["interests"]
+        missing = [f for f in required_fields if not profile.get(f)]
+
+        if missing:
+            reply = (
+                "To recommend activities, I still need the following info: "
+                + ", ".join(missing)
+                + "."
+            )
+            context_manager.add_message(session_id, "assistant", reply)
+            return {"answer": reply, "result": []}
+
+        # Profile complete, proceed to recommend
+        print(f"[recommendation] Final profile: {profile}")
+        recs = recommender.recommend(profile=profile, vitals=None)
+
         if not recs:
             return {"answer": "I couldn't find suitable activities right now.", "result": []}
         activities_text = format_recommendations(recs)
         return {"answer": f"Here are my recommended activities:\n\n{activities_text}", "result": recs}
 
-    # 2. 检查对话历史，看是否在推荐流程中
-    if payload.history:
-        # 找到上一条系统/助手消息
-        last_turn = payload.history[-1]
-        if isinstance(last_turn, dict):
-            last_turn = ChatTurn(**last_turn)
+    # # 2. 检查对话历史，看是否在推荐流程中
+    # if payload.history:
+    #     # 找到上一条系统/助手消息
+    #     last_turn = payload.history[-1]
+    #     if isinstance(last_turn, dict):
+    #         last_turn = ChatTurn(**last_turn)
 
-        # 通过 flow_tag 判断是否在推荐流程
-        if getattr(last_turn, "flow_tag", None) == "REC_FLOW":
-            print("Detected recommendation context via flow_tag, parsing user profile...")
-            profile = profile_parser.parse_user_profile(
-                original_msg, conversation_history=[t.dict() for t in payload.history]
-            )
-            profile = profile_parser.enhance_profile_with_location(profile)
+    #     # 通过 flow_tag 判断是否在推荐流程
+    #     if getattr(last_turn, "flow_tag", None) == "REC_FLOW":
+    #         print("Detected recommendation context via flow_tag, parsing user profile...")
+    #         profile = profile_parser.parse_user_profile(
+    #             original_msg, conversation_history=[t.dict() for t in payload.history]
+    #         )
+    #         profile = profile_parser.enhance_profile_with_location(profile)
 
-            print(f"[recommend-context] Profile for recommendation: {profile}")
-            recs = recommender.recommend(profile=profile, vitals=None)
-            if not recs:
-                return {"answer": "I couldn't find suitable activities right now.", "result": []}
-            activities_text = format_recommendations(recs)
-            return {
-                "answer": f"Here are my recommended activities:\n\n{activities_text}",
-                "result": recs
-            }
+    #         print(f"[recommend-context] Profile for recommendation: {profile}")
+    #         recs = recommender.recommend(profile=profile, vitals=None)
+    #         if not recs:
+    #             return {"answer": "I couldn't find suitable activities right now.", "result": []}
+    #         activities_text = format_recommendations(recs)
+    #         return {
+    #             "answer": f"Here are my recommended activities:\n\n{activities_text}",
+    #             "result": recs
+    #         }
 
 
     # 3. Intent classifier (ML-based routing)
-    intent = intent_clf.predict(user_msg)
+    # Build context-aware input for classifier
+    history_text = " ".join([f"{h['role']}: {h['content']}" for h in history])
+    classifier_input = f"{history_text}\nuser: {user_msg}"
+    intent = intent_clf.predict(classifier_input)
 
     if intent == "recommend_activity":
-        if not payload.profile:
-            # 用 LLM 解析用户的自然语言 → profile
-            profile = profile_parser.parse_user_profile(original_msg, conversation_history=[t.dict() for t in payload.history])
-            profile = profile_parser.enhance_profile_with_location(profile)
+        
+        profile = context_manager.get_profile(session_id)
 
-            print(f"[recommend-intent] Profile for recommendation: {profile}")
-            recs = recommender.recommend(profile=profile, vitals=None)
-            print(f"[recommend-intent] Recs count: {len(recs) if recs else 0}")
-            if not recs:
-                return {"answer": "I couldn't find suitable activities right now.", "result": []}
-            activities_text = format_recommendations(recs)
-            return {"answer": f"Here are my recommended activities:\n\n{activities_text}", "result": recs}
-        else:
-            # 已有 profile，直接推荐
-            print(f"[recommend-intent-existing] Profile for recommendation: {payload.profile}")
-            recs = recommender.recommend(profile=payload.profile, vitals=None)
-            print(f"[recommend-intent-existing] Recs count: {len(recs) if recs else 0}")
-            if not recs:
-                return {"answer": "I couldn't find suitable activities right now.", "result": []}
-            activities_text = format_recommendations(recs)
-            return {"answer": f"Here are my recommended activities:\n\n{activities_text}", "result": recs}
+        # 用 parser + LLM 尝试解析用户输入并更新 profile
+        parsed = profile_parser.parse_user_profile(
+            user_msg, conversation_history=context_manager.get_history(session_id)
+        )
+        parsed = profile_parser.enhance_profile_with_location(parsed)
+        if parsed:
+            profile = context_manager.update_profile(session_id, parsed)
+
+        # 检查 profile 是否完整
+        # required_fields = ["interests", "language", "time", "budget", "location"]
+        required_fields = ["interests"]
+        missing = [f for f in required_fields if not profile.get(f)]
+
+        if missing:
+            reply = (
+                "To recommend activities, I still need the following info: "
+                + ", ".join(missing)
+                + "."
+            )
+            context_manager.add_message(session_id, "assistant", reply)
+            return {"answer": reply, "result": []}
+
+        # profile 完整，直接推荐
+        print(f"[recommendation] Final profile: {profile}")
+        recs = recommender.recommend(profile=profile, vitals=None)
+
+        if not recs:
+            return {"answer": "I couldn't find suitable activities right now.", "result": []}
+        activities_text = format_recommendations(recs)
+        return {"answer": f"Here are my recommended activities:\n\n{activities_text}", "result": recs}
 
 
     elif intent == "health_qa":
@@ -148,14 +184,24 @@ def format_recommendations(recommendations: List[Dict]) -> str:
         source_type = rec.get("source_type", "Not provided")
         description = rec.get("description", "Not provided")
 
-        # --- 格式化数值 ---
+        # format numbers
         if isinstance(price, (int, float)):
             price = "Free" if price == 0 else f"${price:.0f}"
         if isinstance(distance, (int, float)):
             distance = f"{distance:.1f} km"
 
+        activity    = _escape_md(activity)
+        price       = _escape_md(price)
+        distance    = _escape_md(distance)
+        date        = _escape_md(date)
+        start_time  = _escape_md(start_time)
+        end_time    = _escape_md(end_time)
+        language    = _escape_md(language)
+        source_type = _escape_md(source_type)
+        description = _escape_md(description)
+        
         block = (
-            f"{i}. {activity}  \n"
+            f"{i}. **{activity}**  \n"
             # f"Intensity: {intensity.title()}  \n"
             f"Price: {price}  \n"
             f"Distance: {distance}  \n"
@@ -170,3 +216,21 @@ def format_recommendations(recommendations: List[Dict]) -> str:
         formatted.append(block)
 
     return "\n\n".join(formatted)
+
+
+_MD_SPECIAL = re.compile(r'([\\`*_{}\[\]()#+!|>])')
+
+def _escape_md(text: str) -> str:
+    """Escape Markdown special chars so Streamlit renders plain text."""
+    if text is None:
+        return ""
+    s = str(text)
+    # normalize weird whitespaces
+    s = (s.replace("\u00A0", " ")   # non-breaking space
+           .replace("\u200b", "")   # zero-width space
+           .replace("\u2009", " "))
+    # collapse long runs of spaces/tabs
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    # escape markdown control characters
+    s = _MD_SPECIAL.sub(r"\\\1", s)
+    return s
