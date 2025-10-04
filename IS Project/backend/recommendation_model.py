@@ -47,7 +47,7 @@ def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat
     # df = df[(df['registration_closing_date'].isna()) | (df['registration_closing_date'] > pd.Timestamp.now())]
 
     initial_count = len(df)
-    print(f"初始数量: {initial_count}")
+    # print(f"初始数量: {initial_count}")
 
     # Step 1: Language filter
     before = len(df)
@@ -99,7 +99,7 @@ def enhance_with_keywords(text, keywords, weight=3):
 # Composite scoring function
 # -----------------------------
 def comprehensive_score(df, user_vector, user_budget, user_need_free, user_interests,
-                        alpha=0.7, beta=0.1, gamma=0.1, delta=0.1):
+                        alpha=0.5, beta=0.1, gamma=0.1, delta=0.3):
     if len(df) == 0:
         return df
 
@@ -115,17 +115,20 @@ def comprehensive_score(df, user_vector, user_budget, user_need_free, user_inter
     df['InterestScore'] = df['InterestScore'] + 0.2 * df['KeywordMatch']
 
  
-    # Distance normalization
+    # Distance normalization with stronger penalty for far distances
     max_dist = 50
     df['normalized_distance'] = df['distance'].apply(lambda x: min(x / max_dist, 1.0))
+    
+    # Apply exponential penalty for distance to make nearby activities much more attractive
+    df['distance_penalty'] = df['normalized_distance'].apply(lambda x: x ** 2)
 
-    # Composite score
+    # Composite score with increased distance weight
     df['score'] = (
         alpha * df['InterestScore']
         - beta * (df['price_num'] > user_budget * 1.5).astype(int)     # 超预算惩罚
         - beta * (df['is_free'].apply(lambda x: 0 if not user_need_free else (0 if x == 1 else 1))) # 偏好免费
         - gamma * df['is_wrong_time_slot']
-        - delta * df['normalized_distance']
+        - delta * df['distance_penalty']  # 使用距离惩罚而不是标准化距离
     )
     return df
 
@@ -217,7 +220,7 @@ def main(user_interests, user_languages, user_time_slots,
         
         return random_activities[['title', 'category', 'description', 'score', 'InterestScore',
                                   'language', 'distance', 'remaining', 'date',
-                                  'start_time', 'end_time', 'price_num', 'source_type']]
+                                  'start_time', 'end_time', 'price_num', 'source_type', 'lat', 'lon']]
 
     # Multi-rule filtering (修改以支持跳过距离过滤)
     if skip_distance_filter:
@@ -272,8 +275,8 @@ def main(user_interests, user_languages, user_time_slots,
     df_with_vec = pd.read_pickle(data_path)
 
     df = df.merge(
-        df_with_vec[['title', 'activity_vector']], 
-        on='title', 
+        df_with_vec[['id', 'activity_vector']], 
+        on='id', 
         how='left'
     )
 
@@ -285,14 +288,25 @@ def main(user_interests, user_languages, user_time_slots,
     df = df.sort_values(by='score', ascending=False)
     df['remaining'] = df['capacity'] - df['enrolled']
 
-    # Interest threshold filtering
-    interest_threshold = 0.7
+    # Interest threshold filtering (lowered to allow more activities while still prioritizing distance)
+    interest_threshold = 0.6
     relevant_activities = df[df['InterestScore'] >= interest_threshold]
 
     if len(relevant_activities) < 5:
         top_5 = pd.concat([relevant_activities, df[df['InterestScore'] < interest_threshold]]).head(5)
     else:
         top_5 = relevant_activities.head(5)
+    
+    # Remove duplicates based on title (keep the one with highest score)
+    top_5 = top_5.drop_duplicates(subset=['title'], keep='first')
+    
+    # If we have less than 5 after deduplication, fill with more activities
+    if len(top_5) < 5:
+        remaining_activities = df[~df['title'].isin(top_5['title'])]
+        additional_needed = 5 - len(top_5)
+        if len(remaining_activities) > 0:
+            additional = remaining_activities.head(additional_needed)
+            top_5 = pd.concat([top_5, additional])
 
     # # Add recommendation reasons
     # reasons = []
@@ -311,4 +325,4 @@ def main(user_interests, user_languages, user_time_slots,
 
     return top_5[['title', 'category', 'description', 'score', 'InterestScore',
                   'language', 'distance', 'date',
-                  'start_time', 'end_time', 'price_num', 'source_type']]
+                  'start_time', 'end_time', 'price_num', 'source_type', 'lat', 'lon']]

@@ -1,8 +1,89 @@
 import streamlit as st
 import requests
 from datetime import datetime, timezone
+import folium
+from streamlit_folium import st_folium
+import json
 
 BACKEND = "http://fastapi:8000"
+
+# Initialize session state for map functionality
+if "user_location" not in st.session_state:
+    st.session_state.user_location = None
+if "location_selected" not in st.session_state:
+    st.session_state.location_selected = False
+if "show_map" not in st.session_state:
+    st.session_state.show_map = False
+if "recommendations" not in st.session_state:
+    st.session_state.recommendations = []
+
+def create_singapore_map(center_lat=1.3521, center_lon=103.8198, zoom_start=12):
+    """创建新加坡地图"""
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_start,
+        tiles='OpenStreetMap'
+    )
+    
+    # # 添加一些地标帮助用户定位
+    # landmarks = [
+    #     ("Marina Bay", 1.2833, 103.8607),
+    #     ("Orchard Road", 1.3048, 103.8318),
+    #     ("Chinatown", 1.2833, 103.8443),
+    #     ("Little India", 1.3048, 103.8520),
+    #     ("Sentosa", 1.2494, 103.8303),
+    #     ("Jurong East", 1.3329, 103.7436),
+    #     ("Woodlands", 1.4382, 103.7890),
+    #     ("Tampines", 1.3496, 103.9568)
+    # ]
+    
+    # for name, lat, lon in landmarks:
+    #     folium.Marker(
+    #         [lat, lon],
+    #         popup=name,
+    #         tooltip=name,
+    #         icon=folium.Icon(color='blue', icon='info-sign')
+    #     ).add_to(m)
+    
+    return m
+
+def create_recommendation_map(user_location, recommendations):
+    """创建显示推荐结果的地图"""
+    if not user_location or 'lat' not in user_location or 'lon' not in user_location:
+        return create_singapore_map()
+    
+    # 以用户位置为中心
+    m = folium.Map(
+        location=[user_location['lat'], user_location['lon']],
+        zoom_start=12,
+        tiles='OpenStreetMap'
+    )
+    
+    # 添加用户位置标记
+    folium.Marker(
+        [user_location['lat'], user_location['lon']],
+        popup="Your Location",
+        tooltip="Your Location",
+        icon=folium.Icon(color='red', icon='home')
+    ).add_to(m)
+    
+    # 添加推荐活动标记
+    for i, rec in enumerate(recommendations[:10]):  # 只显示前10个
+        if 'lat' in rec and 'lon' in rec and rec['lat'] != 0 and rec['lon'] != 0:
+            folium.Marker(
+                [rec['lat'], rec['lon']],
+                popup=f"""
+                <b>{rec.get('activity', 'Unknown Activity')}</b><br>
+                Price: {rec.get('price', 'N/A')}<br>
+                Distance: {rec.get('distance', 'N/A')}<br>
+                Time: {rec.get('start_time', 'N/A')} - {rec.get('end_time', 'N/A')}<br>
+                Language: {rec.get('language', 'N/A')}
+                """,
+                tooltip=f"{i+1}. {rec.get('activity', 'Unknown Activity')}",
+                icon=folium.Icon(color='green', icon='star')
+            ).add_to(m)
+    
+    return m
 
 st.set_page_config(page_title="Intelligent Care and Resource Matching Platform", page_icon="🩺", layout="centered")
 st.title("Intelligent Care and Resource Matching Platform")
@@ -44,7 +125,7 @@ with tab_form:
 
 with tab_chat:
     st.caption("Ask about your readings or say *recommend activities*.")
-
+    
     # Inject custom CSS for chat bubbles + typing animation
     st.markdown(
         """
@@ -128,6 +209,18 @@ with tab_chat:
     # Chat input
     prompt = st.chat_input("Type your message…")
     if prompt:
+        # Check if this is a new recommendation request
+        if any(keyword in prompt.lower() for keyword in ["recommend", "suggest", "activities", "recommendation"]):
+            # Reset map state for new recommendation
+            st.session_state.show_map = False
+            st.session_state.location_selected = False
+            st.session_state.user_location = None
+            st.session_state.recommendations = []
+        else:
+            # For non-recommendation messages, hide the map
+            st.session_state.show_map = False
+            st.session_state.recommendations = []
+        
         # Save user input
         st.session_state.chat_history.append({"role": "user", "content": prompt})
 
@@ -160,7 +253,8 @@ with tab_chat:
             payload = {
                 "history": st.session_state.chat_history[:-2],  # exclude typing bubble
                 "message": last_user_message,
-                "context_vitals": ctx
+                "context_vitals": ctx,
+                "user_location": st.session_state.user_location  # 添加用户位置信息
             }
             data = {}
             try:
@@ -168,6 +262,19 @@ with tab_chat:
                 data = resp.json() if resp.ok else {}
                 answer = data.get("answer") or data.get("reply", "")
                 retrieved = data.get("retrieved", [])
+                
+                # Handle map display and location selection
+                if data.get("show_map"):
+                    st.session_state.show_map = True
+                if data.get("user_location"):
+                    st.session_state.user_location = data.get("user_location")
+                if data.get("result"):
+                    st.session_state.recommendations = data.get("result")
+                    # 如果有推荐结果但没有用户位置，使用默认位置
+                    if not st.session_state.user_location:
+                        st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
+                        st.session_state.location_selected = True
+                    
             except Exception as e:
                 answer = f"Request failed: {e}"
                 retrieved = []
@@ -178,7 +285,53 @@ with tab_chat:
 
             # Add real assistant response
             st.session_state.chat_history.append(
-                {"role": "assistant", "content": answer, "retrieved": retrieved, "flow_tag": data.get("flow_tag", None)}
+                {"role": "assistant", "content": answer, "retrieved": retrieved, "flow_tag": data.get("flow_tag", None), "user_location": data.get("user_location", None)}
             )
 
             st.rerun()
+
+    # Map section - below chat interface
+    if st.session_state.show_map or st.session_state.recommendations:
+        st.markdown("---")
+        st.subheader("📍 Location & Results")
+        
+        # Show map based on state
+        if st.session_state.show_map and not st.session_state.location_selected:
+            # Show location selection map
+            st.write("**Step 1: Choose your location**")
+            map_obj = create_singapore_map()
+            map_data = st_folium(map_obj, width=700, height=400, key="location_map")
+            
+            if map_data['last_clicked']:
+                lat = map_data['last_clicked']['lat']
+                lng = map_data['last_clicked']['lng']
+                st.session_state.user_location = {'lat': lat, 'lon': lng}
+                st.session_state.location_selected = True
+                st.success(f"Location selected: {lat:.4f}, {lng:.4f}")
+                st.rerun()
+            
+            # Skip location button
+            if st.button("Skip Location (Use Default)"):
+                st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
+                st.session_state.location_selected = True
+                st.success("Using default Singapore location")
+                st.rerun()
+                
+        elif st.session_state.recommendations:
+            # Show recommendation results map (只要有推荐结果就显示)
+            st.write("**Recommended Activities**")
+            
+            # 确保有用户位置（如果没有则使用默认位置）
+            if not st.session_state.user_location:
+                st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
+            
+            map_obj = create_recommendation_map(st.session_state.user_location, st.session_state.recommendations)
+            st_folium(map_obj, width=700, height=400, key="results_map")
+            
+            # Reset button
+            if st.button("New Recommendation"):
+                st.session_state.show_map = False
+                st.session_state.location_selected = False
+                st.session_state.user_location = None
+                st.session_state.recommendations = []
+                st.rerun()

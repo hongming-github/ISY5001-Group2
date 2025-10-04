@@ -25,6 +25,7 @@ class ChatRequest(BaseModel):
     message: str
     context_vitals: Optional[HealthData] = None
     profile: Optional[Dict] = None
+    user_location: Optional[Dict] = None
 
 
 class ChatResponse(BaseModel):
@@ -32,6 +33,47 @@ class ChatResponse(BaseModel):
     result: Optional[List[Dict]] = None
     retrieved: List[str] | None = None
     flow_tag: Optional[str] = None
+    show_map: Optional[bool] = None
+    user_location: Optional[Dict] = None
+
+def should_show_map(user_message: str) -> bool:
+    """判断是否需要显示地图让用户选择位置"""
+    recommendation_keywords = ["recommend", "suggest", "activities", "recommendation", "suggestion"]
+    return any(keyword in user_message.lower() for keyword in recommendation_keywords)
+
+def handle_location_selection(payload):
+    """处理用户地图位置选择"""
+    user_msg = payload.message.lower()
+    original_msg = payload.message
+    
+    # 检查是否是位置选择相关的消息
+    if "location" in user_msg or "skip" in user_msg or "default" in user_msg:
+        # 解析用户消息获取位置信息
+        profile = profile_parser.parse_user_profile(original_msg, conversation_history=[t.dict() for t in payload.history])
+        
+        # 如果用户选择跳过，使用默认位置
+        if "skip" in user_msg or "default" in user_msg:
+            profile["lat"] = 1.3521  # 新加坡默认坐标
+            profile["lon"] = 103.8198
+            profile["location"] = "Singapore (default)"
+        
+        # 增强profile
+        profile = profile_parser.enhance_profile_with_location(profile)
+        
+        return {
+            "answer": "Great! Location selected. Now please tell me your preferences:\n\n"
+                     "🎯 **Your preferences:**\n"
+                     "   - Interests (e.g., yoga, tai chi, fitness)\n"
+                     "   - Language preference\n"
+                     "   - Time slots (morning/afternoon/evening)\n"
+                     "   - Budget (or \"free\")\n"
+                     "   - Any other requirements?",
+            "result": [],
+            "flow_tag": "REC_FLOW",
+            "user_location": {"lat": profile.get("lat"), "lon": profile.get("lon")}
+        }
+    
+    return None
 
 def handle_chat(payload):
     user_msg = payload.message.lower()
@@ -44,16 +86,20 @@ def handle_chat(payload):
         if not payload.profile or not payload.profile.get("interests"):
             return {
                 "answer": (
-                    "Sure! To recommend activities, could you tell me:\n"
-                    "- Your interests (e.g., yoga, tai chi)\n"
-                    "- Preferred language\n"
-                    "- Preferred time slots (morning/afternoon/evening)\n"
-                    "- Your budget (number)\n"
-                    "- Do you prefer free activities?\n"
-                    "- Your location\n"
+                    "Sure! To recommend activities, I'll need some details:\n\n"
+                    "📍 **Step 1: Choose your location** (or skip to use default)\n"
+                    "   👉 Please click on the map to select your area\n\n"
+                    "🎯 **Step 2: Tell me your preferences**\n"
+                    "   - Interests (e.g., yoga, tai chi, fitness)\n"
+                    "   - Language preference\n"
+                    "   - Time slots (morning/afternoon/evening)\n"
+                    "   - Budget (or \"free\")\n"
+                    "   - Any other requirements?\n\n"
+                    "You can provide all details at once or step by step!"
                 ),
                 "result": [],
-                "flow_tag": "REC_FLOW"
+                "flow_tag": "REC_FLOW",
+                "show_map": True
             }
         
         # 如果 profile 已经有了，就直接调用推荐系统
@@ -75,10 +121,22 @@ def handle_chat(payload):
         # 通过 flow_tag 判断是否在推荐流程
         if getattr(last_turn, "flow_tag", None) == "REC_FLOW":
             print("Detected recommendation context via flow_tag, parsing user profile...")
+            
+            # 检查是否有用户位置信息
+            user_location = payload.user_location or getattr(last_turn, "user_location", None)
+            
             profile = profile_parser.parse_user_profile(
                 original_msg, conversation_history=[t.dict() for t in payload.history]
             )
-            profile = profile_parser.enhance_profile_with_location(profile)
+            
+            # 如果有用户选择的位置，使用它
+            if user_location:
+                profile["lat"] = user_location.get("lat", 1.3521)
+                profile["lon"] = user_location.get("lon", 103.8198)
+                print(f"Using user selected location: lat={profile['lat']}, lon={profile['lon']}")
+            else:
+                profile = profile_parser.enhance_profile_with_location(profile)
+                print(f"Using default location: lat={profile['lat']}, lon={profile['lon']}")
 
             print(f"[recommend-context] Profile for recommendation: {profile}")
             recs = recommender.recommend(profile=profile, vitals=None)
@@ -87,7 +145,8 @@ def handle_chat(payload):
             activities_text = format_recommendations(recs)
             return {
                 "answer": f"Here are my recommended activities:\n\n{activities_text}",
-                "result": recs
+                "result": recs,
+                "user_location": user_location
             }
 
 
@@ -98,7 +157,15 @@ def handle_chat(payload):
         if not payload.profile:
             # 用 LLM 解析用户的自然语言 → profile
             profile = profile_parser.parse_user_profile(original_msg, conversation_history=[t.dict() for t in payload.history])
-            profile = profile_parser.enhance_profile_with_location(profile)
+            
+            # 如果有用户选择的位置，使用它
+            if payload.user_location:
+                profile["lat"] = payload.user_location.get("lat", 1.3521)
+                profile["lon"] = payload.user_location.get("lon", 103.8198)
+                print(f"Using user selected location (intent): lat={profile['lat']}, lon={profile['lon']}")
+            else:
+                profile = profile_parser.enhance_profile_with_location(profile)
+                print(f"Using default location (intent): lat={profile['lat']}, lon={profile['lon']}")
 
             print(f"[recommend-intent] Profile for recommendation: {profile}")
             recs = recommender.recommend(profile=profile, vitals=None)

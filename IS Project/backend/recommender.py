@@ -92,6 +92,8 @@ class ElderlyActivityRecommender:
                 "end_time": row.get("end_time", "") or "",
                 "language": row.get("language", "") or "",
                 "source_type": row.get("source_type", "") or "",
+                "lat": _safe_float(row.get("lat", 0)),
+                "lon": _safe_float(row.get("lon", 0)),
             })
         return results
 

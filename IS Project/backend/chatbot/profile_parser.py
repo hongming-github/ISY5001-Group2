@@ -11,9 +11,9 @@ class ProfileParser:
     def __init__(self):
         self.client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            base_url=os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            base_url=os.getenv("OPENAI_API_BASE")
         )
-        self.model = os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
+        self.model = os.getenv("OPENAI_MODEL", "deepseek-v3-1-250821")
     
     def parse_user_profile(self, user_message: str, conversation_history: List[Dict] = None) -> Dict:
         
@@ -192,6 +192,9 @@ Return only the JSON object, no other text:
         """使用位置信息增强profile（添加经纬度）"""
         location = profile.get("location", "").strip()
         if not location:
+            # 如果没有位置信息，使用默认坐标
+            profile["lat"] = 1.3521  # 新加坡默认坐标
+            profile["lon"] = 103.8198
             return profile
         
         # 这里可以集成地理编码服务来获取经纬度
@@ -199,4 +202,11 @@ Return only the JSON object, no other text:
         profile["lat"] = 1.3521  # 新加坡默认坐标
         profile["lon"] = 103.8198
         
+        return profile
+    
+    def update_profile_with_map_location(self, profile: Dict, lat: float, lon: float) -> Dict:
+        """使用地图选择的经纬度更新profile"""
+        profile["lat"] = lat
+        profile["lon"] = lon
+        profile["location"] = f"Selected location ({lat:.4f}, {lon:.4f})"
         return profile
