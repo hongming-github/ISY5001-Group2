@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import folium
 from streamlit_folium import st_folium
 import json
+import uuid
 
 BACKEND = "http://fastapi:8000"
 
@@ -70,14 +71,20 @@ def create_recommendation_map(user_location, recommendations):
     # 添加推荐活动标记
     for i, rec in enumerate(recommendations[:10]):  # 只显示前10个
         if 'lat' in rec and 'lon' in rec and rec['lat'] != 0 and rec['lon'] != 0:
+            # 格式化价格显示
+            price_display = "Free" if rec.get('price', 0) == 0 else f"${rec.get('price', 0):.0f}"
+            # 格式化距离显示
+            distance_display = f"{rec.get('distance', 0):.1f} km" if rec.get('distance', 0) > 0 else "N/A"
+            
             folium.Marker(
                 [rec['lat'], rec['lon']],
                 popup=f"""
                 <b>{rec.get('activity', 'Unknown Activity')}</b><br>
-                Price: {rec.get('price', 'N/A')}<br>
-                Distance: {rec.get('distance', 'N/A')}<br>
+                Price: {price_display}<br>
+                Distance: {distance_display}<br>
                 Time: {rec.get('start_time', 'N/A')} - {rec.get('end_time', 'N/A')}<br>
-                Language: {rec.get('language', 'N/A')}
+                Language: {rec.get('language', 'N/A')}<br>
+                Date: {rec.get('date', 'N/A')}
                 """,
                 tooltip=f"{i+1}. {rec.get('activity', 'Unknown Activity')}",
                 icon=folium.Icon(color='green', icon='star')
@@ -124,8 +131,8 @@ with tab_form:
             st.error(f"Request failed: {e}")
 
 with tab_chat:
-    st.caption("Ask about your readings or say *recommend activities*.")
-    
+    st.caption("Ask about *health-related questions* or say *recommend activities*.")
+
     # Inject custom CSS for chat bubbles + typing animation
     st.markdown(
         """
@@ -188,6 +195,9 @@ with tab_chat:
         unsafe_allow_html=True
     )
 
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -242,18 +252,13 @@ with tab_chat:
 
         if last_user_message:
             ctx = {
-                "device_id": device_id,
-                "blood_pressure": blood_pressure,
-                "heart_rate": int(heart_rate) if heart_rate else 0,
-                "blood_glucose": int(blood_glucose) if blood_glucose else 0,
-                "blood_oxygen": int(blood_oxygen) if blood_oxygen else 0,
-                "timestamp": timestamp or None,
             }
 
             payload = {
+                "session_id": st.session_state.session_id,
                 "history": st.session_state.chat_history[:-2],  # exclude typing bubble
                 "message": last_user_message,
-                "context_vitals": ctx,
+                "context": ctx,
                 "user_location": st.session_state.user_location  # 添加用户位置信息
             }
             data = {}
@@ -274,6 +279,8 @@ with tab_chat:
                     if not st.session_state.user_location:
                         st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
                         st.session_state.location_selected = True
+                    # 如果有推荐结果，隐藏位置选择地图
+                    st.session_state.show_map = False
                     
             except Exception as e:
                 answer = f"Request failed: {e}"
@@ -308,6 +315,31 @@ with tab_chat:
                 st.session_state.user_location = {'lat': lat, 'lon': lng}
                 st.session_state.location_selected = True
                 st.success(f"Location selected: {lat:.4f}, {lng:.4f}")
+                
+                # 自动调用推荐API
+                try:
+                    payload = {
+                        "session_id": st.session_state.session_id,
+                        "lat": lat,
+                        "lon": lng
+                    }
+                    resp = requests.post(f"{BACKEND}/recommend_with_location", json=payload, timeout=60)
+                    if resp.ok:
+                        data = resp.json()
+                        # 添加推荐结果到聊天历史
+                        st.session_state.chat_history.append({
+                            "role": "assistant", 
+                            "content": data.get("answer", ""), 
+                            "result": data.get("result", []),
+                            "user_location": data.get("user_location")
+                        })
+                        st.session_state.recommendations = data.get("result", [])
+                        st.session_state.show_map = False  # 隐藏位置选择地图
+                    else:
+                        st.error(f"Failed to get recommendations: {resp.status_code}")
+                except Exception as e:
+                    st.error(f"Error getting recommendations: {e}")
+                
                 st.rerun()
             
             # Skip location button
@@ -315,6 +347,31 @@ with tab_chat:
                 st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
                 st.session_state.location_selected = True
                 st.success("Using default Singapore location")
+                
+                # 自动调用推荐API
+                try:
+                    payload = {
+                        "session_id": st.session_state.session_id,
+                        "lat": 1.3521,
+                        "lon": 103.8198
+                    }
+                    resp = requests.post(f"{BACKEND}/recommend_with_location", json=payload, timeout=60)
+                    if resp.ok:
+                        data = resp.json()
+                        # 添加推荐结果到聊天历史
+                        st.session_state.chat_history.append({
+                            "role": "assistant", 
+                            "content": data.get("answer", ""), 
+                            "result": data.get("result", []),
+                            "user_location": data.get("user_location")
+                        })
+                        st.session_state.recommendations = data.get("result", [])
+                        st.session_state.show_map = False  # 隐藏位置选择地图
+                    else:
+                        st.error(f"Failed to get recommendations: {resp.status_code}")
+                except Exception as e:
+                    st.error(f"Error getting recommendations: {e}")
+                
                 st.rerun()
                 
         elif st.session_state.recommendations:
@@ -328,10 +385,25 @@ with tab_chat:
             map_obj = create_recommendation_map(st.session_state.user_location, st.session_state.recommendations)
             st_folium(map_obj, width=700, height=400, key="results_map")
             
-            # Reset button
-            if st.button("New Recommendation"):
+            # Clear location button
+            if st.button("Clear Location"):
+                # 清空前端状态
                 st.session_state.show_map = False
                 st.session_state.location_selected = False
                 st.session_state.user_location = None
                 st.session_state.recommendations = []
+                
+                # 调用后端API清空位置信息
+                try:
+                    payload = {
+                        "session_id": st.session_state.session_id
+                    }
+                    resp = requests.post(f"{BACKEND}/clear_location", json=payload, timeout=10)
+                    if resp.ok:
+                        st.success("Location cleared. You can now request new recommendations.")
+                    else:
+                        st.error(f"Failed to clear location: {resp.status_code}")
+                except Exception as e:
+                    st.error(f"Error clearing location: {e}")
+                
                 st.rerun()

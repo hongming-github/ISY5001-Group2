@@ -16,12 +16,12 @@ class ProfileParser:
         self.model = os.getenv("OPENAI_MODEL", "deepseek-v3-1-250821")
     
     def parse_user_profile(self, user_message: str, conversation_history: List[Dict] = None) -> Dict:
-        
-        # 构建提示词
+        print(f"conversation_history: {conversation_history}")
+        # construct prompt
         prompt = self._build_parsing_prompt(user_message, conversation_history)
         
         try:
-            # 调用OpenAI API
+            # call LLM
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -32,7 +32,7 @@ class ProfileParser:
                 max_tokens=500
             )
             
-            # 解析响应
+            # parse response
             result = response.choices[0].message.content.strip()
             profile = self._parse_llm_response(result)
             
@@ -91,7 +91,6 @@ Return only the JSON object, no other text:
         try:
             # 尝试直接解析JSON
             profile = json.loads(response)
-            
             # 验证和清理数据
             return self._validate_and_clean_profile(profile)
             
@@ -121,7 +120,6 @@ Return only the JSON object, no other text:
             "location": str(profile.get("location", "")).strip(),
             "sourcetypes": self._clean_sourcetypes(profile.get("sourcetypes"))
         }
-        
         return cleaned_profile
     
     def _clean_list(self, value) -> List[str]:
@@ -191,14 +189,18 @@ Return only the JSON object, no other text:
     def enhance_profile_with_location(self, profile: Dict) -> Dict:
         """使用位置信息增强profile（添加经纬度）"""
         location = profile.get("location", "").strip()
-        if not location:
-            # 如果没有位置信息，使用默认坐标
-            profile["lat"] = 1.3521  # 新加坡默认坐标
-            profile["lon"] = 103.8198
+        print(f"[DEBUG enhance_profile_with_location] location='{location}'")
+        print(f"[DEBUG enhance_profile_with_location] profile before: {profile}")
+        
+        # 检查location是否为空、None字符串或无效值
+        if not location or location.lower() in ['none', 'null', '']:
+            # 如果没有位置信息，不设置默认坐标，让用户选择
+            print(f"[DEBUG enhance_profile_with_location] No valid location, returning profile as-is")
             return profile
         
         # 这里可以集成地理编码服务来获取经纬度
         # 暂时使用默认坐标
+        print(f"[DEBUG enhance_profile_with_location] Valid location found, setting default coordinates")
         profile["lat"] = 1.3521  # 新加坡默认坐标
         profile["lon"] = 103.8198
         
