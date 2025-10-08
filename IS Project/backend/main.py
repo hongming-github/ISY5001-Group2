@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from vital_signs_processor import HealthData, process_vital_signs
 from chatbot.chatbot_service import ChatRequest, ChatResponse, handle_chat
+from chatbot.speech2text_service import recognize_speech
 from dotenv import load_dotenv
 import os
 #import joblib
@@ -45,3 +46,9 @@ async def submit_data(data: HealthData):
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(payload: ChatRequest):
     return handle_chat(payload)
+
+@app.post("/speech_to_text/")
+async def speech_to_text(file: UploadFile = File(...)):
+    audio_data = await file.read()
+    result = recognize_speech(audio_data, fmt="wav", rate=16000)
+    return result
