@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
 from pydantic import BaseModel
-import re
+import textwrap
+import html
 
 from vital_signs_processor import HealthData
 from recommender import ElderlyActivityRecommender
@@ -41,15 +42,57 @@ class ChatResponse(BaseModel):
     user_location: Optional[Dict] = None
 
 def _needs_location_selection(profile: Dict) -> bool:
-    """检查是否需要用户选择位置"""
-    # 如果没有lat/lon坐标，或者坐标为0，则需要用户选择位置
+    """Check if location selection is needed."""
+    # If lat/lon missing or zero, need location selection
     lat = profile.get("lat")
     lon = profile.get("lon")
     return lat is None or lon is None or lat == 0 or lon == 0
 
-def _get_default_singapore_location() -> Dict:
-    """获取新加坡默认位置"""
-    return {"lat": 1.3521, "lon": 103.8198}
+def update_profile_with_random_location(profile: dict) -> dict:
+    """
+    Update the user's profile with a random HDB latitude/longitude pair.
+    """
+    import random
+
+    hdb_locations = [
+        (1.379580207, 103.8549406),
+        (1.398409465, 103.9084376),
+        (1.386981291, 103.771091),
+        (1.282936929, 103.700293),
+        (1.377351206, 103.8723059),
+        (1.41442708, 103.8779589),
+        (1.392607595, 103.8752596),
+        (1.328696852, 103.8832186),
+        (1.356721167, 103.6984026),
+        (1.417147491, 103.8049968),
+    ]
+
+    lat, lon = random.choice(hdb_locations)
+    profile["lat"] = lat
+    profile["lon"] = lon
+    profile["location"] = "Random HDB Area"
+
+    return profile
+
+
+def check_missing_profile_fields(profile: dict, session_id: str, context_manager, required_fields: Optional[List[str]] = None) -> Optional[Dict]:
+    """
+    Check if required fields exist in the user's profile.
+    If missing, return an early response message and empty result.
+    """
+    if required_fields is None:
+        required_fields = ["interests"]
+    missing = [f for f in required_fields if not profile.get(f)]
+    if missing:
+        reply = (
+            "To recommend activities, I still need the following info: "
+            + ", ".join(missing)
+            + "."
+        )
+        context_manager.add_message(session_id, "assistant", reply)
+        return {"answer": reply, "result": []}
+    return None
+
 
 def handle_chat(payload):
     user_msg = payload.message.lower()
@@ -60,7 +103,6 @@ def handle_chat(payload):
     # Store user message in context manager
     context_manager.add_message(session_id, "user", original_msg)
     
-
     # 1. Rule-based intent detection (highest priority)
     # Keywords that strongly indicate recommendation request
     rec_keywords = ["recommend", "activity", "suggestion", "recommendation", "suggest"]
@@ -73,39 +115,30 @@ def handle_chat(payload):
             user_msg, conversation_history=history
         )
         new_profile = profile_parser.enhance_profile_with_location(new_profile)
-
-        # 获取现有profile并合并
+        new_profile = update_profile_with_random_location(new_profile)
+        # Get existing profile and merge
         existing_profile = context_manager.get_profile(session_id)
-        # 合并profile，但新解析的信息优先
+        # Merge profiles, new values overwrite old ones
         profile = {**existing_profile, **new_profile}
         profile = context_manager.update_profile(session_id, profile)
   
-        # Check if profile is complete
-        # required_fields = ["interests", "language", "time", "budget", "location"]
-        required_fields = ["interests"]
-        missing = [f for f in required_fields if not profile.get(f)]
-
-        if missing:
-            reply = (
-                "To recommend activities, I still need the following info: "
-                + ", ".join(missing)
-                + "."
-            )
-            context_manager.add_message(session_id, "assistant", reply)
-            return {"answer": reply, "result": []}
-
+        # Check if profile is complete 
+        missing_resp = check_missing_profile_fields(profile, session_id, context_manager)
+        if missing_resp:
+            return missing_resp
+        
         # Check if location is needed
-        print(f"[DEBUG] Checking location in rule-based: lat={profile.get('lat')}, lon={profile.get('lon')}")
-        print(f"[DEBUG] Needs location selection: {_needs_location_selection(profile)}")
-        if _needs_location_selection(profile):
-            reply = "I need to know your location to recommend nearby activities. Please select your location on the map below, or click 'Skip' to use the default Singapore location."
-            context_manager.add_message(session_id, "assistant", reply)
-            return {
-                "answer": reply, 
-                "result": [],
-                "show_map": True,
-                "user_location": None
-            }
+        # print(f"[DEBUG] Checking location in rule-based: lat={profile.get('lat')}, lon={profile.get('lon')}")
+        # print(f"[DEBUG] Needs location selection: {_needs_location_selection(profile)}")
+        # if _needs_location_selection(profile):
+        #     reply = "I need to know your location to recommend nearby activities. Please select your location on the map below, or click 'Skip' to use the default Singapore location."
+        #     context_manager.add_message(session_id, "assistant", reply)
+        #     return {
+        #         "answer": reply, 
+        #         "result": [],
+        #         "show_map": True,
+        #         "user_location": None
+        #     }
 
         # Profile complete with location, proceed to recommend
         print(f"[recommendation] Final profile: {profile}")
@@ -120,33 +153,8 @@ def handle_chat(payload):
             "user_location": {"lat": profile.get("lat"), "lon": profile.get("lon")}
         }
 
-    # # 2. 检查对话历史，看是否在推荐流程中
-    # if payload.history:
-    #     # 找到上一条系统/助手消息
-    #     last_turn = payload.history[-1]
-    #     if isinstance(last_turn, dict):
-    #         last_turn = ChatTurn(**last_turn)
 
-    #     # 通过 flow_tag 判断是否在推荐流程
-    #     if getattr(last_turn, "flow_tag", None) == "REC_FLOW":
-    #         print("Detected recommendation context via flow_tag, parsing user profile...")
-    #         profile = profile_parser.parse_user_profile(
-    #             original_msg, conversation_history=[t.dict() for t in payload.history]
-    #         )
-    #         profile = profile_parser.enhance_profile_with_location(profile)
-
-    #         print(f"[recommend-context] Profile for recommendation: {profile}")
-    #         recs = recommender.recommend(profile=profile, vitals=None)
-    #         if not recs:
-    #             return {"answer": "I couldn't find suitable activities right now.", "result": []}
-    #         activities_text = format_recommendations(recs)
-    #         return {
-    #             "answer": f"Here are my recommended activities:\n\n{activities_text}",
-    #             "result": recs
-    #         }
-
-
-    # 3. Check for follow-up recommendation requests (context-aware)
+    # 2. Check for follow-up recommendation requests (context-aware)
     # Keywords that indicate follow-up recommendation with new criteria
     follow_up_keywords = ["morning", "afternoon", "evening", "free", "cheap", "expensive", "nearby", "far", "different"]
     has_follow_up = any(k in user_msg for k in follow_up_keywords)
@@ -197,7 +205,7 @@ def handle_chat(payload):
             "user_location": {"lat": profile.get("lat"), "lon": profile.get("lon")}
         }
 
-    # 4. Intent classifier (ML-based routing)
+    # 3. Intent classifier (ML-based routing)
     # Build context-aware input for classifier
     history_text = " ".join([f"{h['role']}: {h['content']}" for h in history])
     classifier_input = f"{history_text}\nuser: {user_msg}"
@@ -213,8 +221,8 @@ def handle_chat(payload):
             return {"answer": "I can help with your health-related questions or recommend suitable activities."}
         
         profile = context_manager.get_profile(session_id)
-
-        # 用 parser + LLM 尝试解析用户输入并更新 profile
+        print(f"[recommendation] Existing profile: {profile}")
+        # Update profile with parsed info from current message + recent history
         parsed = profile_parser.parse_user_profile(
             user_msg, conversation_history=context_manager.get_history(session_id)
         )
@@ -222,19 +230,10 @@ def handle_chat(payload):
         if parsed:
             profile = context_manager.update_profile(session_id, parsed)
 
-        # 检查 profile 是否完整
-        # required_fields = ["interests", "language", "time", "budget", "location"]
-        required_fields = ["interests"]
-        missing = [f for f in required_fields if not profile.get(f)]
-
-        if missing:
-            reply = (
-                "To recommend activities, I still need the following info: "
-                + ", ".join(missing)
-                + "."
-            )
-            context_manager.add_message(session_id, "assistant", reply)
-            return {"answer": reply, "result": []}
+        # Check if profile is complete 
+        missing_resp = check_missing_profile_fields(profile, session_id, context_manager)
+        if missing_resp:
+            return missing_resp
 
         # Check if location is needed
         if _needs_location_selection(profile):
@@ -247,7 +246,7 @@ def handle_chat(payload):
                 "user_location": None
             }
 
-        # profile 完整，直接推荐
+        # profile complete with location, proceed to recommend
         print(f"[recommendation] Final profile: {profile}")
         recs = recommender.recommend(profile=profile, vitals=None)
 
@@ -272,69 +271,65 @@ def handle_chat(payload):
     return {"answer": output["answer"], "retrieved": output["retrieved"]}
 
 
-# ========= 推荐结果格式化 =========
+# ========= Format result =========
 def format_recommendations(recommendations: List[Dict]) -> str:
     if not recommendations:
         return "No activities found."
 
-    formatted = []
+    blocks = []
     for i, rec in enumerate(recommendations, 1):
-        activity = rec.get("activity", "Unknown Activity") or "Unknown Activity"
-        price = rec.get("price", "Not provided")
-        distance = rec.get("distance", "Not provided")
-        date = rec.get("date", "Not provided")
-        start_time = rec.get("start_time", "Not provided")
-        end_time = rec.get("end_time", "Not provided")
-        language = rec.get("language", "Not provided")
-        source_type = rec.get("source_type", "Not provided")
-        description = rec.get("description", "Not provided")
+        activity    = html.escape(rec.get("activity", "Unknown Activity") or "Unknown Activity")
+        price       = rec.get("price", "Not provided")
+        distance    = rec.get("distance", "Not provided")
+        date        = safe_html(rec.get("date"))
+        start_time  = safe_html(rec.get("start_time"))
+        end_time    = safe_html(rec.get("end_time"))
+        language    = safe_html(rec.get("language"))
+        source_type = safe_html(rec.get("source_type"))
+        description = safe_html(rec.get("description"))
 
-        # format numbers
+        # number formatting
         if isinstance(price, (int, float)):
             price = "Free" if price == 0 else f"${price:.0f}"
+        else:
+            price = safe_html(price)
+
         if isinstance(distance, (int, float)):
             distance = f"{distance:.1f} km"
+        else:
+            distance = safe_html(distance)
 
-        activity    = _escape_md(activity)
-        price       = _escape_md(price)
-        distance    = _escape_md(distance)
-        date        = _escape_md(date)
-        start_time  = _escape_md(start_time)
-        end_time    = _escape_md(end_time)
-        language    = _escape_md(language)
-        source_type = _escape_md(source_type)
-        description = _escape_md(description)
-        
-        block = (
-            f"{i}. **{activity}**  \n"
-            # f"Intensity: {intensity.title()}  \n"
-            f"Price: {price}  \n"
-            f"Distance: {distance}  \n"
-            f"Date: {date}  \n"
-            f"Time: {start_time} - {end_time}  \n"
-            f"Language: {language}  \n"
-            f"Source type: {source_type}  \n"
-            f"Description: {description}"
-        )
+        # Default to show preview if too long
+        preview_len = 200
+        if len(description) > preview_len:
+            short_desc = description[:preview_len].rstrip() + "..."
+            desc_html = (
+                f"<details>"
+                f"<summary><b>Description:</b> {short_desc} (click to expand)</summary>"
+                f"<p style='margin-left:1em; color:#444;'>{description}</p>"
+                f"</details>"
+            )
+        else:
+            desc_html = f"<b>Description:</b> {description}"
 
-        formatted.append(block)
+        block = textwrap.dedent(f"""
+        <div style="margin-bottom:12px; line-height:1.45; font-size:14px;">
+          <b>{i}. {activity}</b><br>
+          <b>Price:</b> {price}<br>
+          <b>Distance:</b> {distance}<br>
+          <b>Date:</b> {date}<br>
+          <b>Time:</b> {start_time} - {end_time}<br>
+          <b>Language:</b> {language}<br>
+          <b>Source type:</b> {source_type}<br>
+          {desc_html}
+        </div>
+        """).strip()
 
-    return "\n\n".join(formatted)
+        blocks.append(block)
 
+    # join with newline; Streamlit will handle <br> inside each block
+    return "\n".join(blocks)
 
-_MD_SPECIAL = re.compile(r'([\\`*_{}\[\]()#+!|>])')
-
-def _escape_md(text: str) -> str:
-    """Escape Markdown special chars so Streamlit renders plain text."""
-    if text is None:
-        return ""
-    s = str(text)
-    # normalize weird whitespaces
-    s = (s.replace("\u00A0", " ")   # non-breaking space
-           .replace("\u200b", "")   # zero-width space
-           .replace("\u2009", " "))
-    # collapse long runs of spaces/tabs
-    s = re.sub(r"[ \t]{2,}", " ", s)
-    # escape markdown control characters
-    s = _MD_SPECIAL.sub(r"\\\1", s)
-    return s
+def safe_html(value):
+    """Ensure html.escape always gets a string."""
+    return html.escape(str(value) if value is not None else "Not provided")

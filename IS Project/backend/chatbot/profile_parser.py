@@ -40,16 +40,16 @@ class ProfileParser:
             
         except Exception as e:
             print(f"Error parsing user profile: {e}")
-            # 返回默认profile
+            # Return default empty profile on error
             return self._get_default_profile()
     
     def _build_parsing_prompt(self, user_message: str, conversation_history: List[Dict] = None) -> str:
-        """构建解析提示词"""
+        """Construct the prompt for LLM to extract profile"""
         
         context = ""
         if conversation_history:
             context = "Previous conversation:\n"
-            for turn in conversation_history[-3:]:  # 只取最近3轮对话
+            for turn in conversation_history[-5:]:  # Only last 5 turns
                 context += f"{turn['role']}: {turn['content']}\n"
             context += "\n"
         
@@ -87,15 +87,15 @@ Return only the JSON object, no other text:
         return prompt
     
     def _parse_llm_response(self, response: str) -> Dict:
-        """解析LLM响应为profile字典"""
+        """Parse the LLM response to extract JSON profile"""
         try:
-            # 尝试直接解析JSON
+            # Try to parse the entire response as JSON
             profile = json.loads(response)
-            # 验证和清理数据
+            # Validate and clean profile
             return self._validate_and_clean_profile(profile)
             
         except json.JSONDecodeError:
-            # 如果直接解析失败，尝试提取JSON部分
+            # If full response is not JSON, try to extract JSON substring
             json_match = re.search(r'\{.*\}', response, re.DOTALL)
             if json_match:
                 try:
@@ -108,9 +108,9 @@ Return only the JSON object, no other text:
             return self._get_default_profile()
     
     def _validate_and_clean_profile(self, profile: Dict) -> Dict:
-        """验证和清理profile数据"""
+        """Validate and clean the extracted profile"""
         
-        # 确保所有字段都存在并有正确的类型
+        # Make sure profile has all required keys
         cleaned_profile = {
             "interests": self._clean_list(profile.get("interests", [])),
             "languages": self._clean_list(profile.get("languages", ["English"])),
@@ -175,7 +175,7 @@ Return only the JSON object, no other text:
         return cleaned if cleaned else None
     
     def _get_default_profile(self) -> Dict:
-        """获取默认profile"""
+        """Get default empty profile"""
         return {
             "interests": [],
             "languages": ["English"],

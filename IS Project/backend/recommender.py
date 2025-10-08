@@ -54,7 +54,6 @@ class ElderlyActivityRecommender:
 
         results: List[Dict] = []
         for _, row in df.iterrows(): 
-            print(f"row: {row}")
             results.append({
                 "activity": row.get("title", "") or "",
                 # "intensity": self._map_intensity(row),

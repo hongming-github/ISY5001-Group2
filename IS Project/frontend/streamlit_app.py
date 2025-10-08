@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 from datetime import datetime, timezone
 import folium
+from folium import IFrame
 from streamlit_folium import st_folium
 import json
 import uuid
@@ -19,77 +20,62 @@ if "recommendations" not in st.session_state:
     st.session_state.recommendations = []
 
 def create_singapore_map(center_lat=1.3521, center_lon=103.8198, zoom_start=12):
-    """创建新加坡地图"""
+    """Create a Folium map centered on Singapore"""
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=zoom_start,
         tiles='OpenStreetMap'
     )
     
-    # # 添加一些地标帮助用户定位
-    # landmarks = [
-    #     ("Marina Bay", 1.2833, 103.8607),
-    #     ("Orchard Road", 1.3048, 103.8318),
-    #     ("Chinatown", 1.2833, 103.8443),
-    #     ("Little India", 1.3048, 103.8520),
-    #     ("Sentosa", 1.2494, 103.8303),
-    #     ("Jurong East", 1.3329, 103.7436),
-    #     ("Woodlands", 1.4382, 103.7890),
-    #     ("Tampines", 1.3496, 103.9568)
-    # ]
-    
-    # for name, lat, lon in landmarks:
-    #     folium.Marker(
-    #         [lat, lon],
-    #         popup=name,
-    #         tooltip=name,
-    #         icon=folium.Icon(color='blue', icon='info-sign')
-    #     ).add_to(m)
-    
     return m
 
 def create_recommendation_map(user_location, recommendations):
-    """创建显示推荐结果的地图"""
+    """Create an interactive map with styled recommendation popups."""
     if not user_location or 'lat' not in user_location or 'lon' not in user_location:
-        return create_singapore_map()
-    
-    # 以用户位置为中心
+        return folium.Map(location=[1.3521, 103.8198], zoom_start=12)
+
     m = folium.Map(
         location=[user_location['lat'], user_location['lon']],
         zoom_start=12,
         tiles='OpenStreetMap'
     )
-    
-    # 添加用户位置标记
+
+    # User location marker
     folium.Marker(
         [user_location['lat'], user_location['lon']],
-        popup="Your Location",
-        tooltip="Your Location",
+        popup="📍 <b>Your Location</b>",
+        tooltip="You are here",
         icon=folium.Icon(color='red', icon='home')
     ).add_to(m)
-    
-    # 添加推荐活动标记
-    for i, rec in enumerate(recommendations[:10]):  # 只显示前10个
+
+    for i, rec in enumerate(recommendations[:10]):
         if 'lat' in rec and 'lon' in rec and rec['lat'] != 0 and rec['lon'] != 0:
-            # 格式化价格显示
             price_display = "Free" if rec.get('price', 0) == 0 else f"${rec.get('price', 0):.0f}"
-            # 格式化距离显示
             distance_display = f"{rec.get('distance', 0):.1f} km" if rec.get('distance', 0) > 0 else "N/A"
-            
+
+            # 💄 HTML Style popup
+            html = f"""
+            <div style="font-size: 13px; line-height: 1.4; width: 220px;">
+                <b style="font-size:14px;">{rec.get('activity', 'Unknown Activity')}</b><br>
+                <b>💰 Price:</b> {price_display}<br>
+                <b>📏 Distance:</b> {distance_display}<br>
+                <b>🕒 Time:</b> {rec.get('start_time', 'N/A')} - {rec.get('end_time', 'N/A')}<br>
+                <b>🗓 Date:</b> {rec.get('date', 'N/A')}<br>
+                <b>🌐 Language:</b> {rec.get('language', 'N/A')}<br>
+                <b>🏷 Type:</b> {rec.get('source_type', 'N/A')}
+            </div>
+            """
+
+            iframe = IFrame(html, width=250, height=160)
+            popup = folium.Popup(iframe, max_width=260)
+
             folium.Marker(
                 [rec['lat'], rec['lon']],
-                popup=f"""
-                <b>{rec.get('activity', 'Unknown Activity')}</b><br>
-                Price: {price_display}<br>
-                Distance: {distance_display}<br>
-                Time: {rec.get('start_time', 'N/A')} - {rec.get('end_time', 'N/A')}<br>
-                Language: {rec.get('language', 'N/A')}<br>
-                Date: {rec.get('date', 'N/A')}
-                """,
+                popup=popup,
                 tooltip=f"{i+1}. {rec.get('activity', 'Unknown Activity')}",
                 icon=folium.Icon(color='green', icon='star')
             ).add_to(m)
-    
+
     return m
 
 st.set_page_config(page_title="Intelligent Care and Resource Matching Platform", page_icon="🩺", layout="centered")
@@ -259,7 +245,7 @@ with tab_chat:
                 "history": st.session_state.chat_history[:-2],  # exclude typing bubble
                 "message": last_user_message,
                 "context": ctx,
-                "user_location": st.session_state.user_location  # 添加用户位置信息
+                "user_location": st.session_state.user_location  # add user location if any
             }
             data = {}
             try:
@@ -275,11 +261,11 @@ with tab_chat:
                     st.session_state.user_location = data.get("user_location")
                 if data.get("result"):
                     st.session_state.recommendations = data.get("result")
-                    # 如果有推荐结果但没有用户位置，使用默认位置
+                    # If recommendations are present but no user location, set default location
                     if not st.session_state.user_location:
                         st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
                         st.session_state.location_selected = True
-                    # 如果有推荐结果，隐藏位置选择地图
+                    # If we have recommendations, no need to show map for location selection
                     st.session_state.show_map = False
                     
             except Exception as e:
@@ -334,7 +320,7 @@ with tab_chat:
                             "user_location": data.get("user_location")
                         })
                         st.session_state.recommendations = data.get("result", [])
-                        st.session_state.show_map = False  # 隐藏位置选择地图
+                        st.session_state.show_map = False  # Hide location selection map
                     else:
                         st.error(f"Failed to get recommendations: {resp.status_code}")
                 except Exception as e:
@@ -348,7 +334,7 @@ with tab_chat:
                 st.session_state.location_selected = True
                 st.success("Using default Singapore location")
                 
-                # 自动调用推荐API
+                # Call backend to get recommendations with default location
                 try:
                     payload = {
                         "session_id": st.session_state.session_id,
@@ -358,7 +344,7 @@ with tab_chat:
                     resp = requests.post(f"{BACKEND}/recommend_with_location", json=payload, timeout=60)
                     if resp.ok:
                         data = resp.json()
-                        # 添加推荐结果到聊天历史
+                        # Add recommendations to chat history
                         st.session_state.chat_history.append({
                             "role": "assistant", 
                             "content": data.get("answer", ""), 
@@ -366,7 +352,7 @@ with tab_chat:
                             "user_location": data.get("user_location")
                         })
                         st.session_state.recommendations = data.get("result", [])
-                        st.session_state.show_map = False  # 隐藏位置选择地图
+                        st.session_state.show_map = False  # Hide location selection map
                     else:
                         st.error(f"Failed to get recommendations: {resp.status_code}")
                 except Exception as e:
@@ -375,10 +361,10 @@ with tab_chat:
                 st.rerun()
                 
         elif st.session_state.recommendations:
-            # Show recommendation results map (只要有推荐结果就显示)
+            # Show recommendation results map (As long as we have recommendations)
             st.write("**Recommended Activities**")
             
-            # 确保有用户位置（如果没有则使用默认位置）
+            # Make sure we have a user location to center the map
             if not st.session_state.user_location:
                 st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
             
@@ -387,13 +373,13 @@ with tab_chat:
             
             # Clear location button
             if st.button("Clear Location"):
-                # 清空前端状态
+                # Clear location state
                 st.session_state.show_map = False
                 st.session_state.location_selected = False
                 st.session_state.user_location = None
                 st.session_state.recommendations = []
                 
-                # 调用后端API清空位置信息
+                # Call backend to clear location in profile
                 try:
                     payload = {
                         "session_id": st.session_state.session_id

@@ -7,7 +7,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 from haversine import haversine
 
 
-print("Loading SentenceTransformer model...")  
 MODEL = SentenceTransformer('all-MiniLM-L6-v2')  
 
 # -----------------------------
@@ -47,13 +46,11 @@ def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat
     # df = df[(df['registration_closing_date'].isna()) | (df['registration_closing_date'] > pd.Timestamp.now())]
 
     initial_count = len(df)
-    # print(f"初始数量: {initial_count}")
 
     # Step 1: Language filter
     before = len(df)
     df = language_filter(df, user_languages)
     after = len(df)
-    # print(f"语言过滤: {before} -> {after} (过滤掉 {before - after})")
 
     # Step 2: Timeliness + capacity filter
     # df = df[(df['registration_closing_date'] > pd.Timestamp.now()) & (df['enrolled'] < df['capacity'])]
@@ -72,7 +69,6 @@ def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat
     df.loc[:, 'distance'] = distances
     df = df[df['distance'] <= max_distance]
     after = len(df)
-    # print(f"地理过滤 (<= {max_distance} km): {before} -> {after} (过滤掉 {before - after})")    
 
     # Step 4: Time slot penalty
     df['is_wrong_time_slot'] = df['time_slot'].apply(lambda x: time_slot_penalty(x, user_time_slots))
@@ -125,10 +121,10 @@ def comprehensive_score(df, user_vector, user_budget, user_need_free, user_inter
     # Composite score with increased distance weight
     df['score'] = (
         alpha * df['InterestScore']
-        - beta * (df['price_num'] > user_budget * 1.5).astype(int)     # 超预算惩罚
-        - beta * (df['is_free'].apply(lambda x: 0 if not user_need_free else (0 if x == 1 else 1))) # 偏好免费
+        - beta * (df['price_num'] > user_budget * 1.5).astype(int)     # Expand budget tolerance
+        - beta * (df['is_free'].apply(lambda x: 0 if not user_need_free else (0 if x == 1 else 1))) # Prefer free 
         - gamma * df['is_wrong_time_slot']
-        - delta * df['distance_penalty']  # 使用距离惩罚而不是标准化距离
+        - delta * df['distance_penalty']  # Use distance penalty instead of raw distance
     )
     return df
 
@@ -156,31 +152,31 @@ def main(user_interests, user_languages, user_time_slots,
         print(f"Failed to read data: {e}")
         return pd.DataFrame()
 
-    # 处理缺失参数的默认值
-    # 1. 语言缺失则默认英语
+    # Process defaults for missing inputs
+    # 1. Language default to English
     if not user_languages or len(user_languages) == 0:
         user_languages = ["English"]
     
-    # 2. 时段缺失则早中晚都可以
+    # 2. Time slots default to all
     if not user_time_slots or len(user_time_slots) == 0:
         user_time_slots = ["morning", "afternoon", "evening"]
     
-    # 3. 预算缺失可以设置为999
+    # 3. Budget default to 999
     if user_budget is None or user_budget <= 0:
         user_budget = 999.0
     
-    # 4. need_free缺失则默认为false
+    # 4. need_free default to False
     if user_need_free is None:
         user_need_free = False
     
-    # 5. 经纬度缺失则默认不考虑距离的计算
+    # 5. lat/lon missing or zero → skip distance filtering
     skip_distance_filter = False
     if user_lat is None or user_lon is None or (user_lat == 0.0 and user_lon == 0.0):
         skip_distance_filter = True
         user_lat = 0.0
         user_lon = 0.0
     
-    # 6. sourcetype缺失则默认全选
+    # 6. sourcetype missing or empty → all types
     if not sourcetypes or len(sourcetypes) == 0:
         sourcetypes = None
 
@@ -192,19 +188,19 @@ def main(user_interests, user_languages, user_time_slots,
         if len(selected) > 0 and 'source_type' in df.columns:
             df = df[df['source_type'].str.lower().isin(selected)]
 
-    # 7. 兴趣缺失则从活动中随机抽取五条
+    # 7. Interests missing or empty → return random activities
     user_interests = [i for i in user_interests if i.strip()]
     if not user_interests or len(user_interests) == 0:
         print("No user interests provided, returning random activities")
         random_activities = df.sample(n=min(5, len(df)))
 
-        # 添加必要的字段
+        # Add necessary fields
         random_activities = random_activities.copy()
-        random_activities['score'] = 0.5  # 随机推荐给个中等分数
+        random_activities['score'] = 0.5  # Random score
         random_activities['InterestScore'] = 0.5
         random_activities['remaining'] = random_activities['capacity'] - random_activities['enrolled']
         
-        # 计算距离（如果提供了坐标）
+        # Calculate distances if lat/lon provided
         if not skip_distance_filter:
             user_coords = (user_lat, user_lon)
             distances = []
@@ -222,12 +218,12 @@ def main(user_interests, user_languages, user_time_slots,
                                   'language', 'distance', 'remaining', 'date',
                                   'start_time', 'end_time', 'price_num', 'source_type', 'lat', 'lon']]
 
-    # Multi-rule filtering (修改以支持跳过距离过滤)
+    # Multi-rule filtering (Update: skip distance filter if no valid lat/lon)
     if skip_distance_filter:
-        # 跳过距离过滤的版本
+        # Skip distance filtering
         df = language_filter(df, user_languages)
         df['is_wrong_time_slot'] = df['time_slot'].apply(lambda x: time_slot_penalty(x, user_time_slots))
-        df['distance'] = 0.0  # 设置距离为0，表示不考虑距离
+        df['distance'] = 0.0  # Set distance to 0
     else:
         df = multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat, user_lon)
     
