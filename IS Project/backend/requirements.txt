@@ -3,6 +3,13 @@ fastapi
 uvicorn[standard]
 pydantic
 joblib
+pandas
+sentence-transformers
+scikit-learn
+geopy
+haversine
+numpy
+openpyxl
 
 # Vector store + RAG
 langchain

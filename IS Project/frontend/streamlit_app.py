@@ -1,8 +1,78 @@
 import streamlit as st
 import requests
 from datetime import datetime, timezone
+import folium
+from folium import IFrame
+from streamlit_folium import st_folium
+import json
+import uuid
 
 BACKEND = "http://fastapi:8000"
+
+# Initialize session state for recommendations
+if "user_location" not in st.session_state:
+    st.session_state.user_location = None
+if "recommendations" not in st.session_state:
+    st.session_state.recommendations = []
+
+def create_singapore_map(center_lat=1.3521, center_lon=103.8198, zoom_start=12):
+    """Create a Folium map centered on Singapore"""
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=zoom_start,
+        tiles='OpenStreetMap'
+    )
+    
+    return m
+
+def create_recommendation_map(user_location, recommendations):
+    """Create an interactive map with styled recommendation popups."""
+    if not user_location or 'lat' not in user_location or 'lon' not in user_location:
+        return folium.Map(location=[1.3521, 103.8198], zoom_start=12)
+
+    m = folium.Map(
+        location=[user_location['lat'], user_location['lon']],
+        zoom_start=12,
+        tiles='OpenStreetMap'
+    )
+
+    # User location marker
+    folium.Marker(
+        [user_location['lat'], user_location['lon']],
+        popup="📍 <b>Your Location</b>",
+        tooltip="You are here",
+        icon=folium.Icon(color='red', icon='home')
+    ).add_to(m)
+
+    for i, rec in enumerate(recommendations[:10]):
+        if 'lat' in rec and 'lon' in rec and rec['lat'] != 0 and rec['lon'] != 0:
+            price_display = "Free" if rec.get('price', 0) == 0 else f"${rec.get('price', 0):.0f}"
+            distance_display = f"{rec.get('distance', 0):.1f} km" if rec.get('distance', 0) > 0 else "N/A"
+
+            # 💄 HTML Style popup
+            html = f"""
+            <div style="font-size: 13px; line-height: 1.4; width: 220px;">
+                <b style="font-size:14px;">{rec.get('activity', 'Unknown Activity')}</b><br>
+                <b>💰 Price:</b> {price_display}<br>
+                <b>📏 Distance:</b> {distance_display}<br>
+                <b>🕒 Time:</b> {rec.get('start_time', 'N/A')} - {rec.get('end_time', 'N/A')}<br>
+                <b>🗓 Date:</b> {rec.get('date', 'N/A')}<br>
+                <b>🌐 Language:</b> {rec.get('language', 'N/A')}<br>
+                <b>🏷 Type:</b> {rec.get('source_type', 'N/A')}
+            </div>
+            """
+
+            iframe = IFrame(html, width=250, height=160)
+            popup = folium.Popup(iframe, max_width=260)
+
+            folium.Marker(
+                [rec['lat'], rec['lon']],
+                popup=popup,
+                tooltip=f"{i+1}. {rec.get('activity', 'Unknown Activity')}",
+                icon=folium.Icon(color='green', icon='star')
+            ).add_to(m)
+
+    return m
 
 st.set_page_config(page_title="Intelligent Care and Resource Matching Platform", page_icon="🩺", layout="centered")
 st.title("Intelligent Care and Resource Matching Platform")
@@ -43,7 +113,7 @@ with tab_form:
             st.error(f"Request failed: {e}")
 
 with tab_chat:
-    st.caption("Ask about your readings or say *recommend activities*.")
+    st.caption("Ask about *health-related questions* or say *recommend activities*.")
 
     # Inject custom CSS for chat bubbles + typing animation
     st.markdown(
@@ -107,6 +177,9 @@ with tab_chat:
         unsafe_allow_html=True
     )
 
+    if "session_id" not in st.session_state:
+        st.session_state.session_id = str(uuid.uuid4())
+
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
 
@@ -119,7 +192,7 @@ with tab_chat:
             if "retrieved" in turn and turn["retrieved"]:
                 retrieved_list = turn["retrieved"] or []
                 st.markdown(
-                    "<div class='retrieved-context'>📚 Retrieved Context (with similarity scores):<br>"
+                    "<div class='retrieved-context'>📚 Retrieved Context (with scores):<br>"
                     + "<br>".join([f"- {ctx}" for ctx in retrieved_list])
                     + "</div>",
                     unsafe_allow_html=True,
@@ -128,6 +201,14 @@ with tab_chat:
     # Chat input
     prompt = st.chat_input("Type your message…")
     if prompt:
+        # Check if this is a new recommendation request
+        if any(keyword in prompt.lower() for keyword in ["recommend", "suggest", "activities", "recommendation"]):
+            # Reset recommendations for new recommendation
+            st.session_state.recommendations = []
+        else:
+            # For non-recommendation messages, clear recommendations
+            st.session_state.recommendations = []
+        
         # Save user input
         st.session_state.chat_history.append({"role": "user", "content": prompt})
 
@@ -149,25 +230,31 @@ with tab_chat:
 
         if last_user_message:
             ctx = {
-                "device_id": device_id,
-                "blood_pressure": blood_pressure,
-                "heart_rate": int(heart_rate) if heart_rate else 0,
-                "blood_glucose": int(blood_glucose) if blood_glucose else 0,
-                "blood_oxygen": int(blood_oxygen) if blood_oxygen else 0,
-                "timestamp": timestamp or None,
             }
 
             payload = {
+                "session_id": st.session_state.session_id,
                 "history": st.session_state.chat_history[:-2],  # exclude typing bubble
                 "message": last_user_message,
-                "context_vitals": ctx
+                "context": ctx,
+                "user_location": st.session_state.user_location  # add user location if any
             }
-
+            data = {}
             try:
                 resp = requests.post(f"{BACKEND}/chat", json=payload, timeout=60)
                 data = resp.json() if resp.ok else {}
                 answer = data.get("answer") or data.get("reply", "")
                 retrieved = data.get("retrieved", [])
+                
+                # Handle recommendations and user location
+                if data.get("user_location"):
+                    st.session_state.user_location = data.get("user_location")
+                if data.get("result"):
+                    st.session_state.recommendations = data.get("result")
+                    # If recommendations are present but no user location, set default location
+                    if not st.session_state.user_location:
+                        st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
+                    
             except Exception as e:
                 answer = f"Request failed: {e}"
                 retrieved = []
@@ -178,7 +265,24 @@ with tab_chat:
 
             # Add real assistant response
             st.session_state.chat_history.append(
-                {"role": "assistant", "content": answer, "retrieved": retrieved}
+                {"role": "assistant", "content": answer, "retrieved": retrieved, "flow_tag": data.get("flow_tag", None), "user_location": data.get("user_location", None)}
             )
 
+            st.rerun()
+
+    # Map section - show recommendation results
+    if st.session_state.recommendations:
+        st.markdown("---")
+        st.subheader("📍 Recommended Activities")
+        
+        # Make sure we have a user location to center the map
+        if not st.session_state.user_location:
+            st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
+        
+        map_obj = create_recommendation_map(st.session_state.user_location, st.session_state.recommendations)
+        st_folium(map_obj, width=700, height=400, key="results_map")
+        
+        # Clear recommendations button
+        if st.button("Clear Recommendations"):
+            st.session_state.recommendations = []
             st.rerun()
