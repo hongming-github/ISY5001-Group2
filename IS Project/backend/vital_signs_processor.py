@@ -1,5 +1,4 @@
 from pydantic import BaseModel
-from typing import Optional
 from dotenv import load_dotenv
 import httpx, asyncio
 import os

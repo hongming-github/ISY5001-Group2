@@ -20,6 +20,15 @@ def main():
         ("can you recommend a workout", "recommend_activity"),
         ("suggest me something to do", "recommend_activity"),
         ("activities for elderly", "recommend_activity"),
+        ("i want to go for hiking", "recommend_activity"),
+        ("i want to go to dance", "recommend_activity"),
+        ("i want to do yoga", "recommend_activity"),
+        ("i want to do tai chi", "recommend_activity"),
+        ("i want to do fitness training", "recommend_activity"),
+        ("i want to do swimming", "recommend_activity"),
+        ("i want to do jogging", "recommend_activity"),
+        ("i want to do cycling", "recommend_activity"),
+        ("i want to do gym workout", "recommend_activity"),
 
         # --- Health Q&A ---
         ("what is normal blood pressure", "health_qa"),
@@ -60,7 +69,7 @@ def main():
     joblib.dump(
         {"model_name": "all-MiniLM-L6-v2", "clf": clf},output_path)
     
-    print(f"✅ Intent classifier saved to {output_path}")
+    print(f"Intent classifier saved to {output_path}")
 
 if __name__ == "__main__":
     main()

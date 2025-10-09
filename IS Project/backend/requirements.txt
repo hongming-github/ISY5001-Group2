@@ -4,6 +4,13 @@ uvicorn[standard]
 pydantic
 joblib
 python-multipart
+pandas
+sentence-transformers
+scikit-learn
+geopy
+haversine
+numpy
+openpyxl
 
 # Vector store + RAG
 langchain

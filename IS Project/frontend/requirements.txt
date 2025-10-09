@@ -3,3 +3,5 @@ requests>=2.26.0
 streamlit-audiorec
 pydub
 streamlit-js-eval
+streamlit-folium>=0.13.0
+folium>=0.14.0
