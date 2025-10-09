@@ -126,19 +126,6 @@ def handle_chat(payload):
         missing_resp = check_missing_profile_fields(profile, session_id, context_manager)
         if missing_resp:
             return missing_resp
-        
-        # Check if location is needed
-        # print(f"[DEBUG] Checking location in rule-based: lat={profile.get('lat')}, lon={profile.get('lon')}")
-        # print(f"[DEBUG] Needs location selection: {_needs_location_selection(profile)}")
-        # if _needs_location_selection(profile):
-        #     reply = "I need to know your location to recommend nearby activities. Please select your location on the map below, or click 'Skip' to use the default Singapore location."
-        #     context_manager.add_message(session_id, "assistant", reply)
-        #     return {
-        #         "answer": reply, 
-        #         "result": [],
-        #         "show_map": True,
-        #         "user_location": None
-        #     }
 
         # Profile complete with location, proceed to recommend
         print(f"[recommendation] Final profile: {profile}")

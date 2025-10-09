@@ -192,7 +192,7 @@ with tab_chat:
             if "retrieved" in turn and turn["retrieved"]:
                 retrieved_list = turn["retrieved"] or []
                 st.markdown(
-                    "<div class='retrieved-context'>📚 Retrieved Context (with similarity scores):<br>"
+                    "<div class='retrieved-context'>📚 Retrieved Context (with scores):<br>"
                     + "<br>".join([f"- {ctx}" for ctx in retrieved_list])
                     + "</div>",
                     unsafe_allow_html=True,
