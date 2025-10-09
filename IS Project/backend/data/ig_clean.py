@@ -110,7 +110,7 @@ dfi["capacity"] = -1
 
 # Replace price field with numeric fields
 dfi["price_num"] = np.nan
-dfi["is_free"] = 1   # IG 默认免费
+dfi["is_free"] = 1   # IG default free
 
 # Coordinate matching
 latlon = dfi["organising_commitee"].apply(lookup_cc_coords)

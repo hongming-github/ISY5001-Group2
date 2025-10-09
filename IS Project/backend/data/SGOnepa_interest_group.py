@@ -228,7 +228,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
                 li_next = WebDriverWait(self.browser, 10).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, "ul.pagination li span.btnNext"))
                 )
-                li_tag = li_next.find_element(By.XPATH, "..")  # 父 li
+                li_tag = li_next.find_element(By.XPATH, "..")  # parent li
                 if "disabled" in li_tag.get_attribute("class").lower():
                     print("      [LIST] Already on the last page")
                     break

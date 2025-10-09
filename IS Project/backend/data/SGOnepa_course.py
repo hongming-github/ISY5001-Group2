@@ -233,7 +233,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
             wait_css(self.browser, "a.serp-grid__item", 5)
             soup = soup_from_browser(self.browser)
 
-            # 抓取当前页课程链接
+            # Scrape current page course links
             items = [a.get("href") for a in soup.select(SITE["list_item_links"])]
             items = [urlnorm(list_url, h) for h in items if h]
             for detail in items:
@@ -243,11 +243,11 @@ class CollectionProcessor(processor.CrawlerProcessor):
             from selenium.webdriver.support import expected_conditions as EC
 
             try:
-                # 等待“下一页”按钮出现并可点击
+                # Wait for "next page" button to appear and be clickable
                 li_next = WebDriverWait(self.browser, 8).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, "ul.pagination li span.btnNext"))
                 )
-                li_tag = li_next.find_element(By.XPATH, "..")  # 父 li
+                li_tag = li_next.find_element(By.XPATH, "..")  # parent li
                 if "disabled" in li_tag.get_attribute("class").lower():
                     print("      [LIST] Already on the last page")
                     break

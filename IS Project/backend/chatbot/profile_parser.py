@@ -123,13 +123,13 @@ Return only the JSON object, no other text:
         return cleaned_profile
     
     def _clean_list(self, value) -> List[str]:
-        """清理列表字段"""
+        """Clean list field"""
         if not isinstance(value, list):
             return []
         return [str(item).strip() for item in value if str(item).strip()]
     
     def _clean_time_slots(self, value) -> List[str]:
-        """清理时间段字段"""
+        """Clean time slot field"""
         if not isinstance(value, list):
             return ["any"]
         
@@ -143,12 +143,12 @@ Return only the JSON object, no other text:
         return cleaned if cleaned else ["any"]
     
     def _clean_budget(self, value) -> Optional[float]:
-        """清理预算字段"""
+        """Clean budget field"""
         if value is None:
             return None
         
         try:
-            # 提取数字
+            # Extract numbers
             numbers = re.findall(r'\d+\.?\d*', str(value))
             if numbers:
                 return float(numbers[0])
@@ -158,7 +158,7 @@ Return only the JSON object, no other text:
         return None
     
     def _clean_sourcetypes(self, value) -> Optional[List[str]]:
-        """清理活动类型字段"""
+        """Clean activity type field"""
         if not value:
             return None
         
@@ -187,27 +187,27 @@ Return only the JSON object, no other text:
         }
     
     def enhance_profile_with_location(self, profile: Dict) -> Dict:
-        """使用位置信息增强profile（添加经纬度）"""
+        """Enhance profile with location information (add coordinates)"""
         location = profile.get("location", "").strip()
         print(f"[DEBUG enhance_profile_with_location] location='{location}'")
         print(f"[DEBUG enhance_profile_with_location] profile before: {profile}")
         
-        # 检查location是否为空、None字符串或无效值
+        # Check if location is empty, None string or invalid value
         if not location or location.lower() in ['none', 'null', '']:
-            # 如果没有位置信息，不设置默认坐标，让用户选择
+            # If no location information, do not set default coordinates, let user choose
             print(f"[DEBUG enhance_profile_with_location] No valid location, returning profile as-is")
             return profile
         
-        # 这里可以集成地理编码服务来获取经纬度
-        # 暂时使用默认坐标
+        # Here we can integrate geocoding service to get coordinates
+        # Temporarily use default coordinates
         print(f"[DEBUG enhance_profile_with_location] Valid location found, setting default coordinates")
-        profile["lat"] = 1.3521  # 新加坡默认坐标
+        profile["lat"] = 1.3521  # Singapore default coordinates
         profile["lon"] = 103.8198
         
         return profile
     
     def update_profile_with_map_location(self, profile: Dict, lat: float, lon: float) -> Dict:
-        """使用地图选择的经纬度更新profile"""
+        """Update profile with map-selected coordinates"""
         profile["lat"] = lat
         profile["lon"] = lon
         profile["location"] = f"Selected location ({lat:.4f}, {lon:.4f})"

@@ -9,13 +9,9 @@ import uuid
 
 BACKEND = "http://fastapi:8000"
 
-# Initialize session state for map functionality
+# Initialize session state for recommendations
 if "user_location" not in st.session_state:
     st.session_state.user_location = None
-if "location_selected" not in st.session_state:
-    st.session_state.location_selected = False
-if "show_map" not in st.session_state:
-    st.session_state.show_map = False
 if "recommendations" not in st.session_state:
     st.session_state.recommendations = []
 
@@ -207,14 +203,10 @@ with tab_chat:
     if prompt:
         # Check if this is a new recommendation request
         if any(keyword in prompt.lower() for keyword in ["recommend", "suggest", "activities", "recommendation"]):
-            # Reset map state for new recommendation
-            st.session_state.show_map = False
-            st.session_state.location_selected = False
-            st.session_state.user_location = None
+            # Reset recommendations for new recommendation
             st.session_state.recommendations = []
         else:
-            # For non-recommendation messages, hide the map
-            st.session_state.show_map = False
+            # For non-recommendation messages, clear recommendations
             st.session_state.recommendations = []
         
         # Save user input
@@ -254,9 +246,7 @@ with tab_chat:
                 answer = data.get("answer") or data.get("reply", "")
                 retrieved = data.get("retrieved", [])
                 
-                # Handle map display and location selection
-                if data.get("show_map"):
-                    st.session_state.show_map = True
+                # Handle recommendations and user location
                 if data.get("user_location"):
                     st.session_state.user_location = data.get("user_location")
                 if data.get("result"):
@@ -264,9 +254,6 @@ with tab_chat:
                     # If recommendations are present but no user location, set default location
                     if not st.session_state.user_location:
                         st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
-                        st.session_state.location_selected = True
-                    # If we have recommendations, no need to show map for location selection
-                    st.session_state.show_map = False
                     
             except Exception as e:
                 answer = f"Request failed: {e}"
@@ -283,113 +270,19 @@ with tab_chat:
 
             st.rerun()
 
-    # Map section - below chat interface
-    if st.session_state.show_map or st.session_state.recommendations:
+    # Map section - show recommendation results
+    if st.session_state.recommendations:
         st.markdown("---")
-        st.subheader("📍 Location & Results")
+        st.subheader("📍 Recommended Activities")
         
-        # Show map based on state
-        if st.session_state.show_map and not st.session_state.location_selected:
-            # Show location selection map
-            st.write("**Step 1: Choose your location**")
-            map_obj = create_singapore_map()
-            map_data = st_folium(map_obj, width=700, height=400, key="location_map")
-            
-            if map_data['last_clicked']:
-                lat = map_data['last_clicked']['lat']
-                lng = map_data['last_clicked']['lng']
-                st.session_state.user_location = {'lat': lat, 'lon': lng}
-                st.session_state.location_selected = True
-                st.success(f"Location selected: {lat:.4f}, {lng:.4f}")
-                
-                # 自动调用推荐API
-                try:
-                    payload = {
-                        "session_id": st.session_state.session_id,
-                        "lat": lat,
-                        "lon": lng
-                    }
-                    resp = requests.post(f"{BACKEND}/recommend_with_location", json=payload, timeout=60)
-                    if resp.ok:
-                        data = resp.json()
-                        # 添加推荐结果到聊天历史
-                        st.session_state.chat_history.append({
-                            "role": "assistant", 
-                            "content": data.get("answer", ""), 
-                            "result": data.get("result", []),
-                            "user_location": data.get("user_location")
-                        })
-                        st.session_state.recommendations = data.get("result", [])
-                        st.session_state.show_map = False  # Hide location selection map
-                    else:
-                        st.error(f"Failed to get recommendations: {resp.status_code}")
-                except Exception as e:
-                    st.error(f"Error getting recommendations: {e}")
-                
-                st.rerun()
-            
-            # Skip location button
-            if st.button("Skip Location (Use Default)"):
-                st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
-                st.session_state.location_selected = True
-                st.success("Using default Singapore location")
-                
-                # Call backend to get recommendations with default location
-                try:
-                    payload = {
-                        "session_id": st.session_state.session_id,
-                        "lat": 1.3521,
-                        "lon": 103.8198
-                    }
-                    resp = requests.post(f"{BACKEND}/recommend_with_location", json=payload, timeout=60)
-                    if resp.ok:
-                        data = resp.json()
-                        # Add recommendations to chat history
-                        st.session_state.chat_history.append({
-                            "role": "assistant", 
-                            "content": data.get("answer", ""), 
-                            "result": data.get("result", []),
-                            "user_location": data.get("user_location")
-                        })
-                        st.session_state.recommendations = data.get("result", [])
-                        st.session_state.show_map = False  # Hide location selection map
-                    else:
-                        st.error(f"Failed to get recommendations: {resp.status_code}")
-                except Exception as e:
-                    st.error(f"Error getting recommendations: {e}")
-                
-                st.rerun()
-                
-        elif st.session_state.recommendations:
-            # Show recommendation results map (As long as we have recommendations)
-            st.write("**Recommended Activities**")
-            
-            # Make sure we have a user location to center the map
-            if not st.session_state.user_location:
-                st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
-            
-            map_obj = create_recommendation_map(st.session_state.user_location, st.session_state.recommendations)
-            st_folium(map_obj, width=700, height=400, key="results_map")
-            
-            # Clear location button
-            if st.button("Clear Location"):
-                # Clear location state
-                st.session_state.show_map = False
-                st.session_state.location_selected = False
-                st.session_state.user_location = None
-                st.session_state.recommendations = []
-                
-                # Call backend to clear location in profile
-                try:
-                    payload = {
-                        "session_id": st.session_state.session_id
-                    }
-                    resp = requests.post(f"{BACKEND}/clear_location", json=payload, timeout=10)
-                    if resp.ok:
-                        st.success("Location cleared. You can now request new recommendations.")
-                    else:
-                        st.error(f"Failed to clear location: {resp.status_code}")
-                except Exception as e:
-                    st.error(f"Error clearing location: {e}")
-                
-                st.rerun()
+        # Make sure we have a user location to center the map
+        if not st.session_state.user_location:
+            st.session_state.user_location = {'lat': 1.3521, 'lon': 103.8198}
+        
+        map_obj = create_recommendation_map(st.session_state.user_location, st.session_state.recommendations)
+        st_folium(map_obj, width=700, height=400, key="results_map")
+        
+        # Clear recommendations button
+        if st.button("Clear Recommendations"):
+            st.session_state.recommendations = []
+            st.rerun()

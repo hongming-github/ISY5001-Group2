@@ -61,7 +61,7 @@ def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat
     distances = []
     for lat, lon in zip(df['lat'], df['lon']):
         try:
-            dist = haversine(user_coords, (lat, lon))  # 单位 km
+            dist = haversine(user_coords, (lat, lon))  # unit: km
             distances.append(dist)
         except:
             distances.append(float('inf'))
@@ -95,48 +95,129 @@ def enhance_with_keywords(text, keywords, weight=3):
 # Composite scoring function
 # -----------------------------
 def comprehensive_score(df, user_vector, user_budget, user_need_free, user_interests,
-                        alpha=0.5, beta=0.1, gamma=0.1, delta=0.3):
+                        alpha=0.55, beta=0.15, gamma=0.1, delta=0.2):
     if len(df) == 0:
         return df
 
- 
+    # InterestScore match
     activity_vectors = np.stack(df['activity_vector'].values)
     df['InterestScore'] = cosine_similarity([user_vector], activity_vectors)[0]
 
-    df['KeywordMatch'] = df['title'].str.lower().apply(
-        lambda t: 1 if any(kw.lower() in t for kw in user_interests) else 0
-    )
+    # -------- Keyword-based enhancements --------
+    def keyword_match_bonus(row):
+        title = str(row['title']).lower()
+        desc = str(row['description']).lower()
+        bonus = 0.0
+        for kw in user_interests:
+            kw = kw.lower().strip()
+            # Title completely matches (directly hits the keyword)
+            if re.search(rf'\b{re.escape(kw)}\b', title):
+                bonus += 0.25
+            # Description contains
+            elif kw in desc:
+                bonus += 0.15
+        return min(bonus, 0.4)  # Limit the maximum bonus to 0.4, avoid too high
+
+    df['KeywordBonus'] = df.apply(keyword_match_bonus, axis=1)
+    df['InterestScore'] = (df['InterestScore'] + df['KeywordBonus']).clip(0, 1)
+
+    # Smoothly amplify high interest range
+    df['InterestScore'] = np.sqrt(df['InterestScore'])
 
 
-    df['InterestScore'] = df['InterestScore'] + 0.2 * df['KeywordMatch']
-
- 
-    # Distance normalization with stronger penalty for far distances
+    # Distance penalty
     max_dist = 50
     df['normalized_distance'] = df['distance'].apply(lambda x: min(x / max_dist, 1.0))
-    
-    # Apply exponential penalty for distance to make nearby activities much more attractive
-    df['distance_penalty'] = df['normalized_distance'].apply(lambda x: x ** 2)
+    df['distance_penalty'] = 0.5 * df['normalized_distance'] + 0.5 * (df['normalized_distance'] ** 2)
 
-    # Composite score with increased distance weight
+    # Price penalty
+    df['price_penalty'] = np.clip((df['price_num'] - user_budget) / user_budget, 0, 1)
+
+    # Free activity preference bonus
+    df['free_bonus'] = df['is_free'].apply(lambda x: 0.1 if (user_need_free and x == 1) else 0)
+
+    # Composite score
     df['score'] = (
         alpha * df['InterestScore']
-        - beta * (df['price_num'] > user_budget * 1.5).astype(int)     # Expand budget tolerance
-        - beta * (df['is_free'].apply(lambda x: 0 if not user_need_free else (0 if x == 1 else 1))) # Prefer free 
+        - beta * df['price_penalty']
         - gamma * df['is_wrong_time_slot']
-        - delta * df['distance_penalty']  # Use distance penalty instead of raw distance
+        - delta * df['distance_penalty']
+        + df['free_bonus']
     )
+
     return df
 
 
-# -----------------------------
-# Convert score to star rating
-# -----------------------------
-def score_to_stars(score):
-    min_score, max_score = -0.5, 1.0
-    normalized = (score - min_score) / (max_score - min_score)
-    stars = int(round(normalized * 5))
-    return '★' * max(stars, 1)
+
+def normalize_score(series, temperature=2.0):
+    s = pd.Series(series, dtype=float)
+    if len(s) == 0:
+        return s
+    mu = s.mean()
+    sigma = s.std()
+    if sigma == 0 or np.isnan(sigma):
+        return pd.Series([0.5] * len(s), index=s.index)
+    z = (s - mu) / (sigma * temperature)
+    return 1 / (1 + np.exp(-z))
+
+# def normalize_score(series, low_q=0.05, high_q=0.95):
+#     s = pd.Series(series, dtype=float)
+#     if len(s) == 0:
+#         return s
+#     lo = s.quantile(low_q)
+#     hi = s.quantile(high_q)
+#     if hi <= lo:
+#         return pd.Series([0.5] * len(s), index=s.index)
+#     clipped = s.clip(lo, hi)
+#     norm = (clipped - lo) / (hi - lo)
+#     return norm
+
+
+def explain_recommendation(row, user_interests, user_budget, user_need_free,
+                           user_provided_budget=True, user_provided_time_slots=True):
+    reasons = []
+
+    # InterestScore
+    if row['InterestScore'] >= 0.85:
+        matched_kw = [kw for kw in user_interests if kw.lower() in row['title'].lower() or kw.lower() in str(row['description']).lower()]
+        if matched_kw:
+            reasons.append(f"strongly matches your interest in {', '.join(matched_kw)}")
+        else:
+            reasons.append("is highly relevant to your interests")
+    elif row['InterestScore'] >= 0.7:
+        reasons.append("matches your interests")
+    else:
+        reasons.append("is somewhat related to your interests")
+
+    # Price and Budget
+    if row['is_free'] == 1:
+        if user_need_free:
+            reasons.append("is free, perfectly fitting your preference for free activities")
+        else:
+            reasons.append("is free to join")
+    elif user_provided_budget:
+        if row['price_num'] <= user_budget:
+            reasons.append(f"is within your budget (SGD {row['price_num']:.2f})")
+        else:
+            reasons.append(f"is slightly above your budget (SGD {row['price_num']:.2f})")
+
+    # Distance
+    if row['distance'] <= 2:
+        reasons.append("is very close to your location")
+    elif row['distance'] <= 8:
+        reasons.append("is reasonably near you")
+    else:
+        reasons.append("is a bit farther but still accessible")
+
+    # Time slot
+    if user_provided_time_slots and row['is_wrong_time_slot'] == 0:
+        reasons.append("matches your preferred time slot")
+
+    explanation = (
+        f"This activity {', '.join(reasons)}. "
+    )
+    return explanation
+
 
 
 # -----------------------------
@@ -158,12 +239,16 @@ def main(user_interests, user_languages, user_time_slots,
         user_languages = ["English"]
     
     # 2. Time slots default to all
+    user_provided_time_slots = True
     if not user_time_slots or len(user_time_slots) == 0:
         user_time_slots = ["morning", "afternoon", "evening"]
+        user_provided_time_slots = False
     
     # 3. Budget default to 999
+    user_provided_budget = True
     if user_budget is None or user_budget <= 0:
         user_budget = 999.0
+        user_provided_budget = False
     
     # 4. need_free default to False
     if user_need_free is None:
@@ -192,7 +277,7 @@ def main(user_interests, user_languages, user_time_slots,
     user_interests = [i for i in user_interests if i.strip()]
     if not user_interests or len(user_interests) == 0:
         print("No user interests provided, returning random activities")
-        random_activities = df.sample(n=min(5, len(df)))
+        random_activities = df.sample(n=min(3, len(df)))
 
         # Add necessary fields
         random_activities = random_activities.copy()
@@ -214,9 +299,13 @@ def main(user_interests, user_languages, user_time_slots,
         else:
             random_activities['distance'] = 0.0
         
+        # Add score_normalized and explanation for random activities
+        random_activities['score_normalized'] = 0.5  # Random normalized score
+        random_activities['explanation'] = "This is a randomly selected activity for you to explore."
+        
         return random_activities[['title', 'category', 'description', 'score', 'InterestScore',
                                   'language', 'distance', 'remaining', 'date',
-                                  'start_time', 'end_time', 'price_num', 'source_type', 'lat', 'lon']]
+                                  'start_time', 'end_time', 'price_num', 'source_type', 'lat', 'lon', 'score_normalized', 'explanation']]
 
     # Multi-rule filtering (Update: skip distance filter if no valid lat/lon)
     if skip_distance_filter:
@@ -282,43 +371,37 @@ def main(user_interests, user_languages, user_time_slots,
         return pd.DataFrame()
 
     df = df.sort_values(by='score', ascending=False)
+    df['score_normalized'] = normalize_score(df['score'])
+
     df['remaining'] = df['capacity'] - df['enrolled']
 
     # Interest threshold filtering (lowered to allow more activities while still prioritizing distance)
     interest_threshold = 0.6
     relevant_activities = df[df['InterestScore'] >= interest_threshold]
 
-    if len(relevant_activities) < 5:
-        top_5 = pd.concat([relevant_activities, df[df['InterestScore'] < interest_threshold]]).head(5)
+    if len(relevant_activities) < 3:
+        top_3 = pd.concat([relevant_activities, df[df['InterestScore'] < interest_threshold]]).head(3)
     else:
-        top_5 = relevant_activities.head(5)
+        top_3 = relevant_activities.head(3)
     
     # Remove duplicates based on title (keep the one with highest score)
-    top_5 = top_5.drop_duplicates(subset=['title'], keep='first')
+    top_3 = top_3.drop_duplicates(subset=['title'], keep='first')
     
-    # If we have less than 5 after deduplication, fill with more activities
-    if len(top_5) < 5:
-        remaining_activities = df[~df['title'].isin(top_5['title'])]
-        additional_needed = 5 - len(top_5)
+    # If we have less than 3 after deduplication, fill with more activities
+    if len(top_3) < 3:
+        remaining_activities = df[~df['title'].isin(top_3['title'])]
+        additional_needed = 3 - len(top_3)
         if len(remaining_activities) > 0:
             additional = remaining_activities.head(additional_needed)
-            top_5 = pd.concat([top_5, additional])
+            top_3 = pd.concat([top_3, additional])
 
-    # # Add recommendation reasons
-    # reasons = []
-    # for _, row in top_5.iterrows():
-    #     reason = []
-    #     if row['InterestScore'] > 0.6:
-    #         reason.append("High interest match")
-    #     if row['distance'] < 3:
-    #         reason.append("Nearby")
-    #     if row['is_free'] == 1:
-    #         reason.append("Free activity")
-    #     if row['price_num'] <= user_budget:
-    #         reason.append("Within budget")
-    #     reasons.append(", ".join(reason) if reason else "Recommended based on overall match")
-    # top_5['reason'] = reasons
+    # Add score_normalized and explanation to the final top_3 results
+    # top_3['score_normalized'] = normalize_score(top_3['score'])
+    top_3['explanation'] = top_3.apply(
+        lambda r: explain_recommendation(r, user_interests, user_budget, user_need_free, user_provided_budget, user_provided_time_slots), axis=1
+    )
 
-    return top_5[['title', 'category', 'description', 'score', 'InterestScore',
+
+    return top_3[['title', 'category', 'description', 'score', 'InterestScore',
                   'language', 'distance', 'date',
-                  'start_time', 'end_time', 'price_num', 'source_type', 'lat', 'lon']]
+                  'start_time', 'end_time', 'price_num', 'source_type', 'lat', 'lon', 'score_normalized', 'explanation']]

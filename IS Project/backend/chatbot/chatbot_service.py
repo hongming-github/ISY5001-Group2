@@ -147,9 +147,21 @@ def handle_chat(payload):
         if not recs:
             return {"answer": "I couldn't find suitable activities right now.", "result": []}
         activities_text = format_recommendations(recs)
+        
+        # Create retrieved context with normalized score and explanation info
+        retrieved_info = []
+        for i, rec in enumerate(recs, 1):
+            score_norm = rec.get("score_normalized", 0)
+            explanation = rec.get("explanation", "")
+            activity = rec.get("activity", "Unknown Activity")
+            
+            retrieved_text = f"{i}. {activity} - Score: {score_norm:.3f} - {explanation}"
+            retrieved_info.append(retrieved_text)
+        
         return {
             "answer": f"Here are my recommended activities:\n\n{activities_text}", 
             "result": recs,
+            "retrieved": retrieved_info,
             "user_location": {"lat": profile.get("lat"), "lon": profile.get("lon")}
         }
 
@@ -178,16 +190,10 @@ def handle_chat(payload):
         if missing_resp:
             return missing_resp
 
-        # Check if location is needed
+        # Check if location is needed - if missing, use random HDB location
         if _needs_location_selection(profile):
-            reply = "I need to know your location to recommend nearby activities. Please select your location on the map below, or click 'Skip' to use the default Singapore location."
-            context_manager.add_message(session_id, "assistant", reply)
-            return {
-                "answer": reply, 
-                "result": [],
-                "show_map": True,
-                "user_location": None
-            }
+            profile = update_profile_with_random_location(profile)
+            profile = context_manager.update_profile(session_id, profile)
 
         # profile complete with location, proceed to recommend
         print(f"[recommendation] Final profile: {profile}")
@@ -196,9 +202,21 @@ def handle_chat(payload):
         if not recs:
             return {"answer": "I couldn't find suitable activities right now.", "result": []}
         activities_text = format_recommendations(recs)
+        
+        # Create retrieved context with normalized score and explanation info
+        retrieved_info = []
+        for i, rec in enumerate(recs, 1):
+            score_norm = rec.get("score_normalized", 0)
+            explanation = rec.get("explanation", "")
+            activity = rec.get("activity", "Unknown Activity")
+            
+            retrieved_text = f"{i}. {activity} - Score: {score_norm:.3f} - {explanation}"
+            retrieved_info.append(retrieved_text)
+        
         return {
             "answer": f"Here are my recommended activities:\n\n{activities_text}", 
             "result": recs,
+            "retrieved": retrieved_info,
             "user_location": {"lat": profile.get("lat"), "lon": profile.get("lon")}
         }
 
@@ -242,6 +260,12 @@ def format_recommendations(recommendations: List[Dict]) -> str:
         else:
             distance = safe_html(distance)
 
+        # Format time display - if both start and end are NA, show just "NA"
+        if start_time == "NA" and end_time == "NA":
+            time_display = "NA"
+        else:
+            time_display = f"{start_time} - {end_time}"
+
         # Default to show preview if too long
         preview_len = 200
         if len(description) > preview_len:
@@ -261,7 +285,7 @@ def format_recommendations(recommendations: List[Dict]) -> str:
           <b>Price:</b> {price}<br>
           <b>Distance:</b> {distance}<br>
           <b>Date:</b> {date}<br>
-          <b>Time:</b> {start_time} - {end_time}<br>
+          <b>Time:</b> {time_display}<br>
           <b>Language:</b> {language}<br>
           <b>Source type:</b> {source_type}<br>
           {desc_html}
@@ -275,4 +299,19 @@ def format_recommendations(recommendations: List[Dict]) -> str:
 
 def safe_html(value):
     """Ensure html.escape always gets a string."""
-    return html.escape(str(value) if value is not None else "Not provided")
+    import pandas as pd
+    import numpy as np
+    
+    # Check for None, NaN, or empty values
+    if value is None or pd.isna(value) or (isinstance(value, float) and np.isnan(value)):
+        return "NA"
+    
+    # Convert to string
+    str_value = str(value)
+    
+    # If the value is "NA" (from Excel), display it directly
+    if str_value.strip().upper() == "NA":
+        return "NA"
+    
+    # For other values, escape HTML
+    return html.escape(str_value)

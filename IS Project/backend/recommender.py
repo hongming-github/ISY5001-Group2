@@ -59,6 +59,8 @@ class ElderlyActivityRecommender:
                 # "intensity": self._map_intensity(row),
                 "description": row.get("description", "") or "",
                 "score": _safe_float(row.get("score", 0)),
+                "score_normalized": _safe_float(row.get("score_normalized", 0)),
+                "explanation": row.get("explanation", "") or "",
                 "distance": _safe_float(row.get("distance", -1)),
                 "price": _safe_float(row.get("price_num", 0)),
                 "date": row.get("date", "") or "",

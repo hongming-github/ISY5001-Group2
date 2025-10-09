@@ -177,7 +177,7 @@ class CollectionProcessor:
                     show_more_btn = self.browser.find_element(By.CSS_SELECTOR,
                                                               "button[data-testid='showmoreless-toggle']")
                     self.browser.execute_script("arguments[0].click();", show_more_btn)
-                    time.sleep(2)  # 等待页面刷新
+                    time.sleep(2)  # Wait for page refresh
                     print("[INFO] Clicked Show More to expand categories")
                 except Exception:
                     print("[INFO] Show More button not found, may already be expanded")
@@ -320,7 +320,7 @@ class CollectionProcessor:
                 df.loc[len(df)] = new_row
                 print(f"    [ITEM] {event_number} | {title}")
 
-            # 翻页
+            # Pagination
             try:
                 next_btn = WebDriverWait(self.browser, 10).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, SITE["list_next"]))
@@ -378,6 +378,6 @@ class CollectionProcessor:
 
 if __name__ == '__main__':
     p = CollectionProcessor()
-    p.browser = p._new_browser()   # 打开浏览器
+    p.browser = p._new_browser()   # Open browser
     p.login_with_cookies("https://www.onepa.gov.sg")
     p.process()
