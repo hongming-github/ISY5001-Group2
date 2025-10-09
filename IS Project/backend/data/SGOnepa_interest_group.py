@@ -24,15 +24,15 @@ import numpy as np
 
 
 
-#     ig_number                     编号
-#     title                         名称
-#     classification                分类名称
-#     second_classification         二级分类名称
-#     third_classification          三级分类名称
-#     current_vacancy               目前剩余空余
-#     price                         价格
-#     group_description             课程描述
-#     organising_commitee           举办委员会
+#     ig_number                     number
+#     title                         name
+#     classification                category name
+#     second_classification         second-level category name
+#     third_classification          third-level category name
+#     current_vacancy               current remaining vacancies
+#     price                         price
+#     group_description             group description
+#     organising_commitee           organizing committee
 #     organising_commitee_url
 COLS = ['ig_number', 'title', 'classification', 'second_classification', 'third_classification','current_vacancy','price','group_description','organising_commitee','organising_commitee_url','pageUrl', 'processStatus']
 EXCEL_PATH = 'data_interestgroup.xlsx'
@@ -72,21 +72,21 @@ def soup_from_browser(browser):
 
 SITE = {
     "domain": "https://www.onepa.gov.sg",
-    "start": "https://www.onepa.gov.sg/interest-groups",  # 网页1
+    "start": "https://www.onepa.gov.sg/interest-groups",  # page 1
 
-    # 分级链接
+    # Hierarchical links
     "level1_links": "div.iconbox-tile-component div.button-tile-component_container.fixed-width-btn a",
     "level2_links": "div.textbox-tile-component a.button-tile-component_container_item_anchor",
     "level3_links": "div.textbox-tile-component a.button-tile-component_container_item_anchor",
 
-    "list_item_links": "a.serp-grid__item",  # 课程卡片链接
+    "list_item_links": "a.serp-grid__item",  # course card links
 
-    #next按钮
+    # next button
     "list_next": "span.btnNext[role='link'][data-testid='btn-next']",
 
-    # 详情页元素
-    "detail_ig_number": "div.details-banner p.details-banner__code",  # 课程编号
-    "detail_title": "div.details-banner h3",  # 课程标题
+    # Detail page elements
+    "detail_ig_number": "div.details-banner p.details-banner__code",  # course number
+    "detail_title": "div.details-banner h3",  # course title
     "detail_description": "div.richText",
     "detail_org_name": "div.organisercommitee-list a",
     "detail_org_url": "div.organisercommitee-list a",
@@ -117,7 +117,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
                 self.browser.get(url)
                 return True
             except Exception as e:
-                print(f"[WARN] 打开 {url} 失败 {i + 1}/{retries}: {e}")
+                print(f"[WARN] Failed to open {url} {i + 1}/{retries}: {e}")
                 time.sleep(5)
         return False
 
@@ -149,7 +149,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
 
         finally:
             df.to_excel(EXCEL_PATH, index=False)
-            print("********* 写入成功 *********")
+            print("********* Write successful *********")
             if self.browser:
                 try:
                     self.browser.quit()
@@ -214,7 +214,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
         while True:
             soup = soup_from_browser(self.browser)
 
-            # 抓取当前页课程链接
+            # Scrape current page course links
             items = [a.get("href") for a in soup.select(SITE["list_item_links"])]
             items = [urlnorm(list_url, h) for h in items if h]
             for detail in items:
@@ -224,13 +224,13 @@ class CollectionProcessor(processor.CrawlerProcessor):
             from selenium.webdriver.support import expected_conditions as EC
 
             try:
-                # 等待“下一页”按钮出现并可点击
+                # Wait for "next page" button to appear and be clickable
                 li_next = WebDriverWait(self.browser, 10).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, "ul.pagination li span.btnNext"))
                 )
                 li_tag = li_next.find_element(By.XPATH, "..")  # 父 li
                 if "disabled" in li_tag.get_attribute("class").lower():
-                    print("      [LIST] 已经是最后一页")
+                    print("      [LIST] Already on the last page")
                     break
 
                 curr_active = self.browser.find_element(
@@ -300,7 +300,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
             el = soup.select_one(SITE["detail_title"])
             if el: df.at[i, 'title'] = el.get_text(strip=True)
 
-            el = soup.select_one(SITE["detail_description"])# 去掉Group Description
+            el = soup.select_one(SITE["detail_description"])# Remove Group Description
             if el:
                 text = el.get_text("\n", strip=True)
                 desc = text.replace("Group Description", "").strip()

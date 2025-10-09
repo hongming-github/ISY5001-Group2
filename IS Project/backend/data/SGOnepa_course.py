@@ -24,22 +24,22 @@ import numpy as np
 
 
 
-#     course_number                 课程编号
-#     title                         课程名称
-#     classification                分类名称
-#     second_classification         二级分类名称
-#     third_classification          三级分类名称
-#     language                      语言
-#     current_vacancy               目前剩余空余
-#     date_&_time                   时间
-#     registration_closing_date     课程注册截止日期
-#     price                         价格
-#     course_description            课程描述
-#     requirements                  课程要求
-#     venue                         地点
-#     organising_commitee           举办委员会
+#     course_number                 course number
+#     title                         course name
+#     classification                category name
+#     second_classification         second-level category name
+#     third_classification          third-level category name
+#     language                      language
+#     current_vacancy               current remaining vacancies
+#     date_&_time                   time
+#     registration_closing_date     course registration closing date
+#     price                         price
+#     course_description            course description
+#     requirements                  course requirements
+#     venue                         venue
+#     organising_commitee           organizing committee
 #     organising_commitee_url
-#     training_provider(s)          教练
+#     training_provider(s)          trainer
 #     training_provider(s)_url
 COLS = ['course_number','title','classification','second_classification','third_classification','language','current_vacancy','date_&_time','registration_closing_date','price','course_description','requirements','venue','organising_commitee','organising_commitee_url','training_provider(s)','training_provider(s)_url','pageUrl','processStatus','imageurl']
 EXCEL_PATH = 'data_sgcourse_health.xlsx'
@@ -79,16 +79,16 @@ def soup_from_browser(browser):
 
 SITE = {
     "domain": "https://www.onepa.gov.sg",
-    "start": "https://www.onepa.gov.sg/courses",  # 网页1
+    "start": "https://www.onepa.gov.sg/courses",  # page 1
 
-    # 分级链接
+    # Hierarchical links
     "level1_links": "div.iconbox-tile-component div.button-tile-component_container.fixed-width-btn a",
     "level2_links": "div.textbox-tile-component a.button-tile-component_container_item_anchor",
     "level3_links": "div.textbox-tile-component a.button-tile-component_container_item_anchor",
 
-    "list_item_links": "a.serp-grid__item",  # 课程卡片链接
+    "list_item_links": "a.serp-grid__item",  # course card links
 
-    #next按钮
+    # next button
     "list_next": "span.btnNext[role='link'][data-testid='btn-next']",
 
     "detail_course_number": "p.details-banner__code",
@@ -133,7 +133,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
                 self.browser.get(url)
                 return True
             except Exception as e:
-                print(f"[WARN] 打开 {url} 失败 {i + 1}/{retries}: {e}")
+                print(f"[WARN] Failed to open {url} {i + 1}/{retries}: {e}")
                 time.sleep(5)
         return False
 
@@ -167,7 +167,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
 
         finally:
             df.to_excel(EXCEL_PATH, index=False)
-            print("********* 写入成功 *********")
+            print("********* Write successful *********")
             if self.browser:
                 try:
                     self.browser.quit()
@@ -249,7 +249,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
                 )
                 li_tag = li_next.find_element(By.XPATH, "..")  # 父 li
                 if "disabled" in li_tag.get_attribute("class").lower():
-                    print("      [LIST] 已经是最后一页")
+                    print("      [LIST] Already on the last page")
                     break
 
                 curr_active = self.browser.find_element(
@@ -336,7 +336,7 @@ class CollectionProcessor(processor.CrawlerProcessor):
             els = soup.select(SITE["detail_datetime"])
             if els:
                 dt_texts = [e.get_text(" ", strip=True) for e in els]
-                df.at[i, 'date_&_time'] = " | ".join(dt_texts)  # 用 | 拼接
+                df.at[i, 'date_&_time'] = " | ".join(dt_texts)  # Join with |
 
             el = soup.select_one(SITE["detail_reg_close"])
             if el: df.at[i, 'registration_closing_date'] = el.get_text(strip=True)

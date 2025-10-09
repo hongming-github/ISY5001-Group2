@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     df = pd.read_excel(data_path)
 
-    # 拼接活动文本（和你 main 里的一样）
+    # Concatenate activity text 
     activity_texts = []
     for _, row in df.iterrows():
         title = str(row.get("title", ""))
@@ -40,10 +40,10 @@ if __name__ == "__main__":
         activity_texts.append(activity_text)
 
     df["activity_text"] = activity_texts
-    print("开始生成 embedding ...")
+    print("Starting to generate embeddings...")
     df["activity_vector"] = list(MODEL.encode(df["activity_text"].tolist(), show_progress_bar=True))
 
-    # 保存为 pickle，加快后续加载
+    # Save as pickle to speed up subsequent loading
     output_path = os.path.join(base_dir, "activities_with_vec.pkl")
     df.to_pickle(output_path)
-    print(f"保存完成: {output_path}")
+    print(f"Save completed: {output_path}")

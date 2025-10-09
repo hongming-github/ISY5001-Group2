@@ -3,17 +3,17 @@ import numpy as np
 import re
 import json
 
-# === 配置输入输出路径 ===
-course_path = "data_sgcourse.xlsx"      # 课程数据
+# === Configure input and output paths ===
+course_path = "data_sgcourse.xlsx"      # course data
 geo_path = "CommunityClubs.geojson"         # CC GeoJSON
-output_path = "cleaned_courses.xlsx"  # 输出文件
+output_path = "cleaned_courses.xlsx"  # output file
 
-# === 读取数据 ===
+# === Read data ===
 df = pd.read_excel(course_path)
 with open(geo_path, "r", encoding="utf-8") as f:
     geo = json.load(f)
 
-# === 构造 CC 名称→经纬度映射 ===
+# === Construct CC name → coordinates mapping ===
 import re
 
 cc_name_to_coords = {}
@@ -21,7 +21,7 @@ for feat in geo.get("features", []):
     props = feat.get("properties", {}) or {}
     geom = feat.get("geometry", {}) or {}
 
-    # 从 Description 里解析真正的 CC 名称
+    # Parse the actual CC name from Description
     desc = props.get("Description", "")
     name = None
     if desc:
@@ -29,12 +29,12 @@ for feat in geo.get("features", []):
         if m:
             name = m.group(1).strip()
 
-    # 取 geometry 里的经纬度（GeoJSON 标准是 [lon, lat, z]）
+    # Get coordinates from geometry (GeoJSON standard is [lon, lat, z])
     coords = None
     if geom and geom.get("type") == "Point":
         try:
             lon, lat = geom.get("coordinates", [None, None])[:2]
-            coords = (float(lat), float(lon))  # 存成 (lat, lon) 方便
+            coords = (float(lat), float(lon))  # Store as (lat, lon) for convenience
         except Exception as e:
             pass
 
@@ -42,7 +42,7 @@ for feat in geo.get("features", []):
         cc_name_to_coords[name.lower()] = coords
 
 
-# === 分类映射 ===
+# === Category mapping ===
 base_mapping = {
     "Health & Wellness": "Health_Fitness",
     "Sports & Fitness": "Health_Fitness",
@@ -62,19 +62,19 @@ def map_category(raw):
     raw_str = str(raw).strip()
     return base_mapping.get(raw_str, raw_str.replace("&", "_"))
 
-# === 子类合并 ===
+# === Subcategory combination ===
 def combine_subcategory(row):
     second = str(row.get("second_classification", "") or "").replace("&", "_").strip()
     third = str(row.get("third_classification", "") or "").replace("&", "_").strip()
     return f"{second} ({third})" if third else second
 
-# === vacancy 拆分 ===
+# === vacancy splitting ===
 def split_vacancy(vacancy):
     m = re.search(r"(\d+)\s*/\s*(\d+)", str(vacancy))
     if m: return int(m.group(1)), int(m.group(2))
     return np.nan, np.nan
 
-# === date_&_time 拆分 ===
+# === date_&_time splitting ===
 time_pat = re.compile(r"(\d{1,2}:\d{2}\s*[AP]M)", re.I)
 sess_pat = re.compile(r"(\d+)\s*sessions?", re.I)
 
@@ -97,7 +97,7 @@ def parse_date_time(val):
         return "other"
     return pd.Series([date, sessions, start_time, end_time, slot(start_time)])
 
-# === price 解析 ===
+# === price parsing ===
 def parse_price(val):
     if pd.isna(val):
         return np.nan, 0
@@ -107,7 +107,7 @@ def parse_price(val):
     if s.lower().startswith("free"):
         return 0.0, 1
 
-    # 区间价格: From $230.00 to $240.00
+    # Price range: From $230.00 to $240.00
     if "to" in s.lower():
         nums = re.findall(r"[\d\.]+", s)
         if len(nums) >= 2:
@@ -118,7 +118,7 @@ def parse_price(val):
             except:
                 return np.nan, 0
 
-    # 单一价格
+    # Single price
     s = s.replace("$","").replace(",","").replace("SGD","").strip()
     try:
         p = float(s)
@@ -127,10 +127,10 @@ def parse_price(val):
         return np.nan, 0
 
 
-# === 少儿课程过滤 ===
+# === Children course filtering ===
 child_keywords = ["child","children","kid","kids","toddler","youth","teen","junior",
                   "nursery","preschool","kindergarten","primary","secondary",
-                  "青少年","少年","儿童","小朋友","小孩","幼儿","少儿","亲子","中小学生"]
+                  "teenager","youth","children","kids","toddler","preschool","children","parent-child","primary-secondary students"]
 age_pat = re.compile(r"(?:age|年龄).{0,5}?(\d{1,2})(?:\D+(\d{1,2}))?", re.I)
 under_pat = re.compile(r"(under|below)\s*(\d{1,2})", re.I)
 
@@ -145,21 +145,21 @@ def is_child_course(row):
     if m2 and int(m2.group(2))<=18: return True
     return False
 
-# === 关联 CC 经纬度 ===
+# === Associate CC coordinates ===
 def lookup_cc_coords(name):
     if pd.isna(name):
         return (np.nan, np.nan)
     s = str(name).lower().strip()
     return cc_name_to_coords.get(s, (np.nan, np.nan))
 
-# === 开始清洗 ===
+# === Start cleaning ===
 dfc = df.copy()
 dfc.rename(columns={"course_number":"id","classification":"category",
                     "course_description":"description"}, inplace=True)
 dfc["category"] = dfc["category"].apply(map_category)
 dfc["subcategory"] = dfc.apply(combine_subcategory, axis=1)
 dfc[["enrolled","capacity"]] = dfc["current_vacancy"].apply(lambda x: pd.Series(split_vacancy(x)))
-dfc = dfc[dfc["enrolled"]<dfc["capacity"]]  # 删除已满
+dfc = dfc[dfc["enrolled"]<dfc["capacity"]]  # Remove full courses
 dfc[["date","sessions","start_time","end_time","time_slot"]] = dfc["date_&_time"].apply(parse_date_time)
 dfc[["price_num","is_free"]] = dfc["price"].apply(lambda x: pd.Series(parse_price(x)))
 latlon = dfc["organising_commitee"].apply(lookup_cc_coords)
@@ -168,7 +168,7 @@ dfc = dfc.dropna(subset=["lat", "lon"])
 dfc["source_type"] = "course"
 dfc = dfc[~dfc.apply(is_child_course, axis=1)]
 
-# === 调整字段顺序：替换原位置 ===
+# === Adjust field order: replace original position ===
 new_cols = []
 for c in df.columns:
     if c=="course_number": new_cols.append("id")
@@ -181,10 +181,10 @@ for c in df.columns:
     else: new_cols.append(c)
 if "price" in new_cols:
     idx_price = new_cols.index("price")
-    new_cols[idx_price:idx_price+1] = ["price_num","is_free"]  # 用新字段替换原 price
+    new_cols[idx_price:idx_price+1] = ["price_num","is_free"]  # Replace original price with new fields
 idx_org = new_cols.index("organising_commitee")+1 if "organising_commitee" in new_cols else len(new_cols)
 new_cols[idx_org:idx_org] = ["lat","lon"]
 new_cols.append("source_type")
 
 dfc[new_cols].to_excel(output_path, index=False)
-print("清洗完成:", output_path)
+print("Cleaning completed:", output_path)

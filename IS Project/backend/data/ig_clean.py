@@ -4,17 +4,17 @@ import re
 import json
 import difflib
 
-# === 输入输出路径 ===
+# === Input and output paths ===
 ig_path = "data_interestgroup.xlsx"
 geo_path = "CommunityClubs.geojson"
 output_path = "cleaned_interestgroups.xlsx"
 
-# === 读取数据 ===
+# === Read data ===
 df = pd.read_excel(ig_path)
 with open(geo_path, "r", encoding="utf-8") as f:
     geo = json.load(f)
 
-# === 构造 CC 名称→经纬度映射 ===
+# === Construct CC name → coordinates mapping ===
 cc_name_to_coords = {}
 for feat in geo.get("features", []):
     props = feat.get("properties", {}) or {}
@@ -62,7 +62,7 @@ def lookup_cc_coords(name):
                 return cc_name_to_coords[key]
     return (np.nan, np.nan)
 
-# === 分类映射 ===
+# === Category mapping ===
 base_mapping = {
     "Health & Wellness": "Health_Fitness",
     "Sports & Fitness": "Health_Fitness",
@@ -81,13 +81,13 @@ def map_category(raw):
     raw_str = str(raw).strip()
     return base_mapping.get(raw_str, raw_str.replace("&", "_"))
 
-# === 子类合并（如果有） ===
+# === Subcategory combination (if any) ===
 def combine_subcategory(row):
     second = str(row.get("second_classification", "") or "").replace("&", "_").strip()
     third = str(row.get("third_classification", "") or "").replace("&", "_").strip()
     return f"{second} ({third})" if third else second
 
-# === 开始清洗 ===
+# === Start cleaning ===
 dfi = df.copy()
 dfi.rename(columns={
     "ig_number": "id",
@@ -95,7 +95,7 @@ dfi.rename(columns={
     "classification": "category"
 }, inplace=True)
 
-# id 原样保留
+# Keep id as is
 dfi["id"] = dfi["id"].astype(str).str.strip()
 dfi["category"] = dfi["category"].apply(map_category)
 
@@ -104,15 +104,15 @@ if "second_classification" in dfi.columns or "third_classification" in dfi.colum
 else:
     dfi["subcategory"] = ""
 
-# vacancy = 无限
+# vacancy = unlimited
 dfi["enrolled"] = 0
 dfi["capacity"] = -1
 
-# price 字段替换为数值化字段
+# Replace price field with numeric fields
 dfi["price_num"] = np.nan
 dfi["is_free"] = 1   # IG 默认免费
 
-# 经纬度匹配
+# Coordinate matching
 latlon = dfi["organising_commitee"].apply(lookup_cc_coords)
 dfi["lat"] = latlon.apply(lambda x:x[0])
 dfi["lon"] = latlon.apply(lambda x:x[1])
@@ -121,7 +121,7 @@ dfi = dfi.dropna(subset=["lat","lon"])
 dfi["language"] = "English"
 dfi["source_type"] = "interest_group"
 
-# === 调整字段顺序 ===
+# === Adjust field order ===
 new_cols = []
 for c in df.columns:
     if c == "ig_number": new_cols.append("id")
@@ -129,21 +129,21 @@ for c in df.columns:
     elif c in ["second_classification", "third_classification"]:
         if "subcategory" not in new_cols: new_cols.append("subcategory")
     elif c == "current_vacancy":
-        new_cols.extend(["enrolled","capacity"])  # 替换 vacancy
+        new_cols.extend(["enrolled","capacity"])  # Replace vacancy
     elif c == "price":
-        new_cols.extend(["price_num","is_free"])  # 替换 price
+        new_cols.extend(["price_num","is_free"])  # Replace price
     elif c == "group_description": new_cols.append("description")
     else:
         new_cols.append(c)
 
-# 插入 lat/lon
+# Insert lat/lon
 idx_org = new_cols.index("organising_commitee")+1 if "organising_commitee" in new_cols else len(new_cols)
 new_cols[idx_org:idx_org] = ["lat","lon"]
 
-# 插入额外字段
+# Insert additional fields
 new_cols.append("language")
 new_cols.append("source_type")
 
-# === 输出 ===
+# === Output ===
 dfi[new_cols].to_excel(output_path, index=False)
-print("清洗完成:", output_path)
+print("Cleaning completed:", output_path)

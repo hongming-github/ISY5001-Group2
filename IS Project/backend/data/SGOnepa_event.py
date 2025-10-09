@@ -25,16 +25,16 @@ import numpy as np
 
 
 
-#     event_number                  活动编号
-#     title                         活动名称
-#     classification                分类名称
-#     current_vacancy               目前剩余空余
-#     date_&_time                   时间
-#     registration_closing_date     活动注册截止日期
-#     price                         价格
-#     event_description             活动描述
-#     venue                         地点
-#     organising_commitee           举办委员会
+#     event_number                  event number
+#     title                         event name
+#     classification                category name
+#     current_vacancy               current remaining vacancies
+#     date_&_time                   time
+#     registration_closing_date     event registration closing date
+#     price                         price
+#     event_description             event description
+#     venue                         venue
+#     organising_commitee           organizing committee
 #     organising_commitee_url
 COLS = [ 'event_number', 'title', 'classification', 'current_vacancy', 'date_&_time',
          'registration_closing_date', 'price', 'event_description', 'venue', 'organising_commitee',
@@ -62,27 +62,27 @@ def urlnorm(base, href):
 def save_cookies(browser, path="cookies.pkl"):
     with open(path, "wb") as f:
         pickle.dump(browser.get_cookies(), f)
-    print("[INFO] cookies 已保存到", path)
+    print("[INFO] cookies saved to", path)
 
 
 def load_cookies(browser, path="cookies.pkl"):
     if not os.path.exists(path):
-        print("[WARN] 没有找到 cookies.pkl，需要手动登录一次")
+        print("[WARN] cookies.pkl not found, need to login manually once")
         return False
 
     with open(path, "rb") as f:
         cookies = pickle.load(f)
 
     for cookie in cookies:
-        # 兼容 sameSite 错误值
+        # Compatible with sameSite error values
         if "sameSite" in cookie and cookie["sameSite"] not in ["Strict", "Lax", "None"]:
             cookie["sameSite"] = "Lax"
         try:
             browser.add_cookie(cookie)
         except Exception as e:
-            print("[WARN] 加载 cookie 出错:", e)
+            print("[WARN] Error loading cookie:", e)
 
-    print("[INFO] cookies 已加载")
+    print("[INFO] cookies loaded")
     return True
 
 def pause():
@@ -102,16 +102,16 @@ def soup_from_browser(browser):
 
 SITE = {
     "domain": "https://www.onepa.gov.sg",
-    "start": "https://www.onepa.gov.sg/events",  # 网页1
+    "start": "https://www.onepa.gov.sg/events",  # page 1
 
-    # 分级链接
+    # Hierarchical links
     "level1_links": "div.icon-grid__item a.icon-grid__item-anchor",
     # "level2_links": "div.textbox-tile-component a.button-tile-component_container_item_anchor",
     # "level3_links": "div.textbox-tile-component a.button-tile-component_container_item_anchor",
 
     "list_item_links": "div.serp-grid a.serp-grid__item",
 
-    #next按钮
+    # next button
     "list_next": "span.btnNext[role='link'][data-testid='btn-next']",
 
     "detail_vacancy": "div.details-banner__vacancy h6",
@@ -134,20 +134,20 @@ class CollectionProcessor:
         return b
 
     def login_with_cookies(self, home_url="https://www.onepa.gov.sg"):
-        """尝试加载 cookies，如果没有就手动登录一次"""
+        """Try to load cookies, if not found then login manually once"""
         self.browser.get(home_url)
 
-        # 如果有 cookies.pkl → 直接加载
+        # If cookies.pkl exists → load directly
         if load_cookies(self.browser):
             self.browser.refresh()
-            print("[INFO] 已使用 cookies 登录")
+            print("[INFO] Logged in using cookies")
             return
 
-        # 否则需要手动登录一次
-        print("[ACTION] 请在弹出的浏览器中手动完成登录，然后回到终端按回车继续...")
-        input(">>> 等待手动登录完成后按回车继续：")
+        # Otherwise need to login manually once
+        print("[ACTION] Please complete login manually in the popup browser, then return to terminal and press Enter to continue...")
+        input(">>> Wait for manual login completion and press Enter to continue:")
 
-        # 登录后保存 cookies
+        # Save cookies after login
         save_cookies(self.browser)
 
     def safe_get(self, url, retries=3):
@@ -156,7 +156,7 @@ class CollectionProcessor:
                 self.browser.get(url)
                 return True
             except Exception as e:
-                print(f"[WARN] 打开 {url} 失败 {i + 1}/{retries}: {e}")
+                print(f"[WARN] Failed to open {url} {i + 1}/{retries}: {e}")
                 time.sleep(5)
         return False
 
@@ -172,15 +172,15 @@ class CollectionProcessor:
                 self.browser.get(home)
                 wait_css(self.browser, "body", 20)
 
-                # 点击 Show More 按钮展开全部分类
+                # Click Show More button to expand all categories
                 try:
                     show_more_btn = self.browser.find_element(By.CSS_SELECTOR,
                                                               "button[data-testid='showmoreless-toggle']")
                     self.browser.execute_script("arguments[0].click();", show_more_btn)
                     time.sleep(2)  # 等待页面刷新
-                    print("[INFO] 已点击 Show More 展开分类")
+                    print("[INFO] Clicked Show More to expand categories")
                 except Exception:
-                    print("[INFO] 没有找到 Show More 按钮，可能已经展开")
+                    print("[INFO] Show More button not found, may already be expanded")
 
                 soup = soup_from_browser(self.browser)
                 links = soup.select(SITE["level1_links"])
@@ -198,7 +198,7 @@ class CollectionProcessor:
 
         finally:
             df.to_excel(EXCEL_PATH, index=False)
-            print("********* 写入成功 *********")
+            print("********* Write successful *********")
             if self.browser:
                 try:
                     self.browser.quit()
@@ -346,7 +346,7 @@ class CollectionProcessor:
         global df
         try:
             if self.first_detail:
-                print("[INFO] 第一次进入详情页，先暂停 60 秒")
+                print("[INFO] First time entering detail page, pause for 60 seconds")
                 time.sleep(60)
                 self.first_detail = False
 

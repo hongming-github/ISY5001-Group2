@@ -3,17 +3,17 @@ import numpy as np
 import re
 import json
 
-# === 配置输入输出路径 ===
-event_path = "data_sgevent.xlsx"      # event 数据
+# === Configure input and output paths ===
+event_path = "data_sgevent.xlsx"      # event data
 geo_path = "CommunityClubs.geojson"   # CC GeoJSON
-output_path = "cleaned_events.xlsx"   # 输出文件
+output_path = "cleaned_events.xlsx"   # output file
 
-# === 读取数据 ===
+# === Read data ===
 df = pd.read_excel(event_path)
 with open(geo_path, "r", encoding="utf-8") as f:
     geo = json.load(f)
 
-# === 构造 CC 名称→经纬度映射 ===
+# === Construct CC name → coordinates mapping ===
 cc_name_to_coords = {}
 for feat in geo.get("features", []):
     props = feat.get("properties", {}) or {}
@@ -34,7 +34,7 @@ for feat in geo.get("features", []):
     if name and coords:
         cc_name_to_coords[name.lower()] = coords
 
-# === 分类映射 ===
+# === Category mapping ===
 base_mapping = {
     "Health & Wellness": "Health_Fitness",
     "Sports & Fitness": "Health_Fitness",
@@ -53,13 +53,13 @@ def map_category(raw):
     raw_str = str(raw).strip()
     return base_mapping.get(raw_str, raw_str.replace("&", "_"))
 
-# === vacancy 拆分 ===
+# === vacancy splitting ===
 def split_vacancy(vacancy):
     m = re.search(r"(\d+)\s*/\s*(\d+)", str(vacancy))
     if m: return int(m.group(1)), int(m.group(2))
     return np.nan, np.nan
 
-# === datetime 拆分 ===
+# === datetime splitting ===
 time_pat = re.compile(r"(\d{1,2}:\d{2}\s*[AP]M)", re.I)
 def parse_event_datetime(val):
     if pd.isna(val): return pd.Series([np.nan]*5)
@@ -84,7 +84,7 @@ def parse_event_datetime(val):
         return "other"
     return pd.Series([date_part, 1, start_time, end_time, slot(start_time)])
 
-# === price 解析 ===
+# === price parsing ===
 def parse_price(val):
     if pd.isna(val): return np.nan, 0
     s = str(val).strip()
@@ -109,7 +109,7 @@ def parse_price(val):
 import difflib
 
 def normalize_cc_name(name: str) -> str:
-    """统一化 CC 名称：小写 + 去掉 cc/community club"""
+    """Normalize CC name: lowercase + remove cc/community club"""
     s = str(name).lower().strip()
     s = s.replace("community club", "").replace("cc", "").strip()
     return s
@@ -119,34 +119,34 @@ def lookup_cc_coords(name):
         return (np.nan, np.nan)
     raw = str(name).lower().strip()
 
-    # 1. 精确匹配
+    # 1. Exact match
     if raw in cc_name_to_coords:
         return cc_name_to_coords[raw]
 
-    # 2. 规范化匹配
+    # 2. Normalized match
     norm = normalize_cc_name(raw)
     for key in cc_name_to_coords:
         if normalize_cc_name(key) == norm:
             return cc_name_to_coords[key]
 
-    # 3. 前半段单词匹配
+    # 3. First word match
     raw_tokens = norm.split()
     for key in cc_name_to_coords:
         key_tokens = normalize_cc_name(key).split()
         if raw_tokens and key_tokens and raw_tokens[0] == key_tokens[0]:
             return cc_name_to_coords[key]
 
-    # 4. 字符串相似度匹配
+    # 4. String similarity match
     close = difflib.get_close_matches(norm, [normalize_cc_name(k) for k in cc_name_to_coords], n=1, cutoff=0.8)
     if close:
         for key in cc_name_to_coords:
             if normalize_cc_name(key) == close[0]:
                 return cc_name_to_coords[key]
 
-    # 5. 找不到 → NaN
+    # 5. Not found → NaN
     return (np.nan, np.nan)
 
-# === 开始清洗 ===
+# === Start cleaning ===
 dfe = df.copy()
 dfe.rename(columns={
     "event_number":"id",
@@ -169,7 +169,7 @@ dfe = dfe.dropna(subset=["lat","lon"])
 dfe["language"] = "English"
 dfe["source_type"] = "event"
 
-# === 调整字段顺序 ===
+# === Adjust field order ===
 new_cols = []
 for c in df.columns:
     if c=="event_number": new_cols.append("id")
@@ -180,7 +180,7 @@ for c in df.columns:
     elif c=="price": new_cols.extend(["price_num","is_free"])
     else: new_cols.append(c)
 
-# 插入额外字段
+# Insert additional fields
 if "subcategory" not in new_cols:
     new_cols.insert(new_cols.index("category")+1, "subcategory")
 idx_org = new_cols.index("organising_commitee")+1 if "organising_commitee" in new_cols else len(new_cols)
@@ -188,6 +188,6 @@ new_cols[idx_org:idx_org] = ["lat","lon"]
 new_cols.append("language")
 new_cols.append("source_type")
 
-# === 输出 ===
+# === Output ===
 dfe[new_cols].to_excel(output_path, index=False)
-print("清洗完成:", output_path)
+print("Cleaning completed:", output_path)
