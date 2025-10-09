@@ -154,58 +154,7 @@ def handle_chat(payload):
         }
 
 
-    # 2. Check for follow-up recommendation requests (context-aware)
-    # Keywords that indicate follow-up recommendation with new criteria
-    follow_up_keywords = ["morning", "afternoon", "evening", "free", "cheap", "expensive", "nearby", "far", "different"]
-    has_follow_up = any(k in user_msg for k in follow_up_keywords)
-    
-    # Check if last assistant message was a recommendation
-    last_assistant_msg = None
-    if history:
-        for turn in reversed(history):
-            if turn.get("role") == "assistant" and turn.get("content"):
-                last_assistant_msg = turn.get("content")
-                break
-    
-    is_follow_up_recommendation = (
-        has_follow_up and 
-        last_assistant_msg and 
-        ("recommended activities" in last_assistant_msg.lower() or "here are" in last_assistant_msg.lower())
-    )
-    
-    if is_follow_up_recommendation:
-        print("[follow-up] Detected follow-up recommendation request")
-        profile = context_manager.get_profile(session_id)
-        
-        # Parse new criteria from user message
-        parsed = profile_parser.parse_user_profile(
-            user_msg, conversation_history=history
-        )
-        if parsed:
-            # Update profile with new criteria while keeping existing location
-            existing_location = {"lat": profile.get("lat"), "lon": profile.get("lon")}
-            profile = context_manager.update_profile(session_id, parsed)
-            # Ensure location is preserved
-            if existing_location.get("lat") and existing_location.get("lon"):
-                profile["lat"] = existing_location["lat"]
-                profile["lon"] = existing_location["lon"]
-                profile = context_manager.update_profile(session_id, profile)
-        
-        # Execute recommendation with updated profile
-        print(f"[follow-up-recommendation] Updated profile: {profile}")
-        recs = recommender.recommend(profile=profile, vitals=None)
-        
-        if not recs:
-            return {"answer": "I couldn't find suitable activities with your new criteria.", "result": []}
-        
-        activities_text = format_recommendations(recs)
-        return {
-            "answer": f"Here are updated recommendations based on your new criteria:\n\n{activities_text}", 
-            "result": recs,
-            "user_location": {"lat": profile.get("lat"), "lon": profile.get("lon")}
-        }
-
-    # 3. Intent classifier (ML-based routing)
+    # 2. Intent classifier (ML-based routing)
     # Build context-aware input for classifier
     history_text = " ".join([f"{h['role']}: {h['content']}" for h in history])
     classifier_input = f"{history_text}\nuser: {user_msg}"
@@ -214,12 +163,6 @@ def handle_chat(payload):
     print(f"[DEBUG] Intent classifier result: '{intent}'")
 
     if intent == "recommend_activity":
-        # Additional check: ensure the message actually contains recommendation keywords
-        # This prevents false positives from the intent classifier
-        if not any(k in user_msg for k in ["recommend", "activity", "suggestion", "recommendation", "suggest", "morning", "afternoon", "evening", "free", "cheap", "expensive", "nearby", "far", "different"]):
-            print(f"[DEBUG] Intent classifier returned 'recommend_activity' but no relevant keywords found, treating as chitchat")
-            return {"answer": "I can help with your health-related questions or recommend suitable activities."}
-        
         profile = context_manager.get_profile(session_id)
         print(f"[recommendation] Existing profile: {profile}")
         # Update profile with parsed info from current message + recent history
