@@ -4,8 +4,14 @@ from datetime import datetime, timezone
 from st_audiorec import st_audiorec
 from pydub import AudioSegment
 import tempfile, hashlib, requests
+from streamlit_js_eval import streamlit_js_eval
 
 BACKEND = "http://fastapi:8000"
+
+user_agent = streamlit_js_eval(js_expressions="navigator.userAgent", key="ua")
+is_mobile = False
+if user_agent and any(m in user_agent.lower() for m in ["iphone", "android", "mobile"]):
+    is_mobile = True
 
 st.set_page_config(page_title="Intelligent Care and Resource Matching Platform", page_icon="🩺", layout="centered")
 st.title("Intelligent Care and Resource Matching Platform")
@@ -151,67 +157,72 @@ with tab_chat:
         st.write("")
         st.button("Send", on_click=send_message)
 
-    st.markdown("""
-    <style>
-    iframe[title="st_audiorec.st_audiorec"],
-    iframe[title^="st_audiorec"] {
-        height: 56px !important;
-        min-height: 56px !important;
-        max-height: 56px !important;
-        width: 240px !important;
-        overflow: hidden !important;
-        border: none !important;
-        display: block !important;
-        margin-top: 10px !important;
-        margin-bottom: 0 !important;
-    }
-    div[data-testid="stComponent"] {
-        padding: 0 !important;
-        margin: 0 !important;
-    }
-    audio, .stAudio { display: none !important; }
-    iframe[title="st_audiorec.st_audiorec"] + div,
-    iframe[title^="st_audiorec"] + div { display: none !important; }
-    div[data-testid="stVerticalBlock"] > div:has(iframe[title^="st_audiorec"]) {
-        margin-bottom: 0 !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    if is_mobile:
+        st.info("🎙️ Tip: On your phone, you can tap the keyboard’s microphone icon to speak.")
 
-    st.write("🎤 Record your voice to fill the input box")
-    wav_audio_data = st_audiorec()
+    else:
 
-    if wav_audio_data is not None:
-        md5 = hashlib.md5(wav_audio_data).hexdigest()
-        if md5 != st.session_state.stt_last_md5:
-            st.session_state.stt_last_md5 = md5
+        st.markdown("""
+        <style>
+        iframe[title="st_audiorec.st_audiorec"],
+        iframe[title^="st_audiorec"] {
+            height: 56px !important;
+            min-height: 56px !important;
+            max-height: 56px !important;
+            width: 240px !important;
+            overflow: hidden !important;
+            border: none !important;
+            display: block !important;
+            margin-top: 10px !important;
+            margin-bottom: 0 !important;
+        }
+        div[data-testid="stComponent"] {
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        audio, .stAudio { display: none !important; }
+        iframe[title="st_audiorec.st_audiorec"] + div,
+        iframe[title^="st_audiorec"] + div { display: none !important; }
+        div[data-testid="stVerticalBlock"] > div:has(iframe[title^="st_audiorec"]) {
+            margin-bottom: 0 !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
 
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_in:
-                tmp_in.write(wav_audio_data)
-                wav_in_path = tmp_in.name
-            sound = AudioSegment.from_wav(wav_in_path).set_frame_rate(16000).set_channels(1)
-            with tempfile.NamedTemporaryFile(delete=False, suffix="_16k.wav") as tmp_out:
-                wav_16k_path = tmp_out.name
-                sound.export(wav_16k_path, format="wav")
+        st.write("🎤 Record your voice to fill the input box")
+        wav_audio_data = st_audiorec()
 
-            try:
-                with open(wav_16k_path, "rb") as f:
-                    files = {"file": ("audio_16k.wav", f, "audio/wav")}
-                    res = requests.post(f"{BACKEND}/speech_to_text/", files=files, timeout=30)
+        if wav_audio_data is not None:
+            md5 = hashlib.md5(wav_audio_data).hexdigest()
+            if md5 != st.session_state.stt_last_md5:
+                st.session_state.stt_last_md5 = md5
 
-                if res.ok:
-                    data = res.json()
-                    recognized_text = data.get("result", "")
-                    if isinstance(recognized_text, list):
-                        recognized_text = "\n".join(recognized_text)
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_in:
+                    tmp_in.write(wav_audio_data)
+                    wav_in_path = tmp_in.name
+                sound = AudioSegment.from_wav(wav_in_path).set_frame_rate(16000).set_channels(1)
+                with tempfile.NamedTemporaryFile(delete=False, suffix="_16k.wav") as tmp_out:
+                    wav_16k_path = tmp_out.name
+                    sound.export(wav_16k_path, format="wav")
 
-                    if recognized_text.strip():
-                        st.session_state.stt_buffer = recognized_text
-                        st.rerun()
-                else:
-                    st.error(f"Speech API error: {res.status_code}")
-            except Exception as e:
-                st.error(f"Speech recognition failed: {e}")
+                try:
+                    with open(wav_16k_path, "rb") as f:
+                        files = {"file": ("audio_16k.wav", f, "audio/wav")}
+                        res = requests.post(f"{BACKEND}/speech_to_text/", files=files, timeout=30)
+
+                    if res.ok:
+                        data = res.json()
+                        recognized_text = data.get("result", "")
+                        if isinstance(recognized_text, list):
+                            recognized_text = "\n".join(recognized_text)
+
+                        if recognized_text.strip():
+                            st.session_state.stt_buffer = recognized_text
+                            st.rerun()
+                    else:
+                        st.error(f"Speech API error: {res.status_code}")
+                except Exception as e:
+                    st.error(f"Speech recognition failed: {e}")
 
     if st.session_state.chat_history and "typing" in st.session_state.chat_history[-1]["content"]:
         last_user_message = next(
