@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 import math
-from recommendation_model import main as rec_main
+from chatbot.recommendation_model import main as rec_main
 
 # Define your own data structure
 @dataclass

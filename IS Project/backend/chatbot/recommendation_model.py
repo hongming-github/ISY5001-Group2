@@ -6,7 +6,6 @@ from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 from haversine import haversine
 
-
 MODEL = SentenceTransformer('all-MiniLM-L6-v2')  
 
 # -----------------------------
@@ -42,21 +41,10 @@ def time_slot_penalty(activity_slot, user_time_slots):
 # Multi-rule filtering
 # -----------------------------
 def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat, user_lon, max_distance=50):
-    # df['registration_closing_date'] = pd.to_datetime(df['registration_closing_date'], errors='coerce')
-    # df = df[(df['registration_closing_date'].isna()) | (df['registration_closing_date'] > pd.Timestamp.now())]
-
-    initial_count = len(df)
-
     # Step 1: Language filter
-    before = len(df)
     df = language_filter(df, user_languages)
-    after = len(df)
 
-    # Step 2: Timeliness + capacity filter
-    # df = df[(df['registration_closing_date'] > pd.Timestamp.now()) & (df['enrolled'] < df['capacity'])]
-
-    # Step 3: Geographic filter
-    before = len(df)
+    # Step 2: Geographic filter
     user_coords = (user_lat, user_lon)
     distances = []
     for lat, lon in zip(df['lat'], df['lon']):
@@ -68,9 +56,8 @@ def multi_rule_filter(df, user_languages, user_budget, user_time_slots, user_lat
     df = df.copy()
     df.loc[:, 'distance'] = distances
     df = df[df['distance'] <= max_distance]
-    after = len(df)
 
-    # Step 4: Time slot penalty
+    # Step 3: Time slot penalty
     df['is_wrong_time_slot'] = df['time_slot'].apply(lambda x: time_slot_penalty(x, user_time_slots))
 
     return df
@@ -124,7 +111,6 @@ def comprehensive_score(df, user_vector, user_budget, user_need_free, user_inter
     # Smoothly amplify high interest range
     df['InterestScore'] = np.sqrt(df['InterestScore'])
 
-
     # Distance penalty
     max_dist = 50
     df['normalized_distance'] = df['distance'].apply(lambda x: min(x / max_dist, 1.0))
@@ -147,8 +133,6 @@ def comprehensive_score(df, user_vector, user_budget, user_need_free, user_inter
 
     return df
 
-
-
 def normalize_score(series, temperature=2.0):
     s = pd.Series(series, dtype=float)
     if len(s) == 0:
@@ -159,19 +143,6 @@ def normalize_score(series, temperature=2.0):
         return pd.Series([0.5] * len(s), index=s.index)
     z = (s - mu) / (sigma * temperature)
     return 1 / (1 + np.exp(-z))
-
-# def normalize_score(series, low_q=0.05, high_q=0.95):
-#     s = pd.Series(series, dtype=float)
-#     if len(s) == 0:
-#         return s
-#     lo = s.quantile(low_q)
-#     hi = s.quantile(high_q)
-#     if hi <= lo:
-#         return pd.Series([0.5] * len(s), index=s.index)
-#     clipped = s.clip(lo, hi)
-#     norm = (clipped - lo) / (hi - lo)
-#     return norm
-
 
 def explain_recommendation(row, user_interests, user_budget, user_need_free,
                            user_provided_budget=True, user_provided_time_slots=True):
@@ -218,8 +189,6 @@ def explain_recommendation(row, user_interests, user_budget, user_need_free,
     )
     return explanation
 
-
-
 # -----------------------------
 # Main function
 # -----------------------------
@@ -227,7 +196,7 @@ def main(user_interests, user_languages, user_time_slots,
          user_budget, user_need_free, user_lat, user_lon, sourcetypes=None):
     try:
         base_dir = os.path.dirname(__file__)
-        data_path = os.path.join(base_dir, 'data', 'activities.xlsx')
+        data_path = os.path.join(base_dir, '..', 'data', 'activities.xlsx')
         df = pd.read_excel(data_path)
     except Exception as e:
         print(f"Failed to read data: {e}")
@@ -356,7 +325,7 @@ def main(user_interests, user_languages, user_time_slots,
     # df['activity_text'] = activity_texts
     # df['activity_vector'] = list(generate_vectors(df['activity_text'].tolist(), model))
     base_dir = os.path.dirname(__file__)
-    data_path = os.path.join(base_dir, "data", "activities_with_vec.pkl")
+    data_path = os.path.join(base_dir, '..', "data", "activities_with_vec.pkl")
     df_with_vec = pd.read_pickle(data_path)
 
     df = df.merge(
@@ -396,11 +365,9 @@ def main(user_interests, user_languages, user_time_slots,
             top_3 = pd.concat([top_3, additional])
 
     # Add score_normalized and explanation to the final top_3 results
-    # top_3['score_normalized'] = normalize_score(top_3['score'])
     top_3['explanation'] = top_3.apply(
         lambda r: explain_recommendation(r, user_interests, user_budget, user_need_free, user_provided_budget, user_provided_time_slots), axis=1
     )
-
 
     return top_3[['title', 'category', 'description', 'score', 'InterestScore',
                   'language', 'distance', 'date',

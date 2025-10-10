@@ -3,6 +3,7 @@ fastapi
 uvicorn[standard]
 pydantic
 joblib
+python-multipart
 pandas
 sentence-transformers
 scikit-learn

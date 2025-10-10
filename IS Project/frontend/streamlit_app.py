@@ -1,13 +1,21 @@
 import streamlit as st
 import requests
 from datetime import datetime, timezone
+from st_audiorec import st_audiorec
+from pydub import AudioSegment
+import tempfile, hashlib, requests
+from streamlit_js_eval import streamlit_js_eval
 import folium
 from folium import IFrame
 from streamlit_folium import st_folium
-import json
 import uuid
 
 BACKEND = "http://fastapi:8000"
+
+user_agent = streamlit_js_eval(js_expressions="navigator.userAgent", key="ua")
+is_mobile = False
+if user_agent and any(m in user_agent.lower() for m in ["iphone", "android", "mobile"]):
+    is_mobile = True
 
 # Initialize session state for recommendations
 if "user_location" not in st.session_state:
@@ -115,7 +123,6 @@ with tab_form:
 with tab_chat:
     st.caption("Ask about *health-related questions* or say *recommend activities*.")
 
-    # Inject custom CSS for chat bubbles + typing animation
     st.markdown(
         """
         <style>
@@ -148,10 +155,7 @@ with tab_chat:
             margin: 10px 5px;
             clear: both;
         }
-        /* Typing dots animation */
-        .typing {
-            display: inline-block;
-        }
+        .typing { display: inline-block; }
         .typing span {
             display: inline-block;
             width: 6px;
@@ -161,12 +165,8 @@ with tab_chat:
             border-radius: 50%;
             animation: blink 1.4s infinite both;
         }
-        .typing span:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-        .typing span:nth-child(3) {
-            animation-delay: 0.4s;
-        }
+        .typing span:nth-child(2) { animation-delay: 0.2s; }
+        .typing span:nth-child(3) { animation-delay: 0.4s; }
         @keyframes blink {
             0% { opacity: 0.2; }
             20% { opacity: 1; }
@@ -182,8 +182,17 @@ with tab_chat:
 
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+    if "editable_input" not in st.session_state:
+        st.session_state.editable_input = ""
+    if "stt_last_md5" not in st.session_state:
+        st.session_state.stt_last_md5 = None
+    if "stt_buffer" not in st.session_state:
+        st.session_state.stt_buffer = None
 
-    # Render chat history
+    if st.session_state.stt_buffer:
+        st.session_state.editable_input = st.session_state.stt_buffer
+        st.session_state.stt_buffer = None
+
     for turn in st.session_state.chat_history:
         if turn["role"] == "user":
             st.markdown(f"<div class='user-bubble'>{turn['content']}</div>", unsafe_allow_html=True)
@@ -198,40 +207,113 @@ with tab_chat:
                     unsafe_allow_html=True,
                 )
 
-    # Chat input
-    prompt = st.chat_input("Type your message…")
-    if prompt:
-        # Check if this is a new recommendation request
-        if any(keyword in prompt.lower() for keyword in ["recommend", "suggest", "activities", "recommendation"]):
-            # Reset recommendations for new recommendation
-            st.session_state.recommendations = []
-        else:
-            # For non-recommendation messages, clear recommendations
-            st.session_state.recommendations = []
-        
-        # Save user input
-        st.session_state.chat_history.append({"role": "user", "content": prompt})
+    def send_message():
+        prompt = st.session_state.editable_input.strip()
+        if prompt:
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            st.session_state.chat_history.append(
+                {"role": "assistant", "content": "<div class='typing'><span></span><span></span><span></span></div>"}
+            )
+            st.session_state.editable_input = ""
 
-        # Temporary assistant "typing..." bubble
-        st.session_state.chat_history.append(
-            {"role": "assistant", "content": "<div class='typing'><span></span><span></span><span></span></div>"}
+
+    st.markdown("""
+    <style>
+    textarea {
+        min-height: 45px !important;  /* 改成与按钮一致的高度 */
+        max-height: 45px !important;
+        padding-top: 10px !important;
+    }
+    .stButton > button {
+        height: 45px;
+    }
+    """, unsafe_allow_html=True)
+
+    cols = st.columns([9, 1])
+    with cols[0]:
+        st.text_area(
+            "💬 Type or edit your message:",
+            key="editable_input",
+            label_visibility="collapsed",
+            placeholder="Type your message…"
         )
+    with cols[1]:
+        st.button("➤", on_click=send_message, use_container_width=True)
 
-        st.rerun()
+    if is_mobile:
+        st.info("🎙️ Tip: On your phone, you can tap the keyboard’s microphone icon to speak.")
 
-    # If last message is typing animation → fetch real answer
+    else:
+
+        st.markdown("""
+        <style>
+        iframe[title="st_audiorec.st_audiorec"],
+        iframe[title^="st_audiorec"] {
+            height: 56px !important;
+            min-height: 56px !important;
+            max-height: 56px !important;
+            width: 240px !important;
+            overflow: hidden !important;
+            border: none !important;
+            display: block !important;
+            margin-top: 10px !important;
+            margin-bottom: 0 !important;
+        }
+        div[data-testid="stComponent"] {
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        audio, .stAudio { display: none !important; }
+        iframe[title="st_audiorec.st_audiorec"] + div,
+        iframe[title^="st_audiorec"] + div { display: none !important; }
+        div[data-testid="stVerticalBlock"] > div:has(iframe[title^="st_audiorec"]) {
+            margin-bottom: 0 !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.write("🎤 Record your voice to fill the input box")
+        wav_audio_data = st_audiorec()
+
+        if wav_audio_data is not None:
+            md5 = hashlib.md5(wav_audio_data).hexdigest()
+            if md5 != st.session_state.stt_last_md5:
+                st.session_state.stt_last_md5 = md5
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_in:
+                    tmp_in.write(wav_audio_data)
+                    wav_in_path = tmp_in.name
+                sound = AudioSegment.from_wav(wav_in_path).set_frame_rate(16000).set_channels(1)
+                with tempfile.NamedTemporaryFile(delete=False, suffix="_16k.wav") as tmp_out:
+                    wav_16k_path = tmp_out.name
+                    sound.export(wav_16k_path, format="wav")
+
+                try:
+                    with open(wav_16k_path, "rb") as f:
+                        files = {"file": ("audio_16k.wav", f, "audio/wav")}
+                        res = requests.post(f"{BACKEND}/speech_to_text/", files=files, timeout=30)
+
+                    if res.ok:
+                        data = res.json()
+                        recognized_text = data.get("result", "")
+                        if isinstance(recognized_text, list):
+                            recognized_text = "\n".join(recognized_text)
+
+                        if recognized_text.strip():
+                            st.session_state.stt_buffer = recognized_text
+                            st.rerun()
+                    else:
+                        st.error(f"Speech API error: {res.status_code}")
+                except Exception as e:
+                    st.error(f"Speech recognition failed: {e}")
+
     if st.session_state.chat_history and "typing" in st.session_state.chat_history[-1]["content"]:
-        # Get last user message
-        last_user_message = None
-        for turn in reversed(st.session_state.chat_history):
-            if turn["role"] == "user":
-                last_user_message = turn["content"]
-                break
-
+        last_user_message = next(
+            (t["content"] for t in reversed(st.session_state.chat_history) if t["role"] == "user"), None
+        )
         if last_user_message:
             ctx = {
             }
-
             payload = {
                 "session_id": st.session_state.session_id,
                 "history": st.session_state.chat_history[:-2],  # exclude typing bubble
@@ -259,15 +341,10 @@ with tab_chat:
                 answer = f"Request failed: {e}"
                 retrieved = []
 
-            # Remove typing bubble
-            if "typing" in st.session_state.chat_history[-1]["content"]:
-                st.session_state.chat_history.pop()
-
-            # Add real assistant response
+            st.session_state.chat_history.pop()
             st.session_state.chat_history.append(
                 {"role": "assistant", "content": answer, "retrieved": retrieved, "flow_tag": data.get("flow_tag", None), "user_location": data.get("user_location", None)}
             )
-
             st.rerun()
 
     # Map section - show recommendation results
