@@ -3,8 +3,7 @@ from pydantic import BaseModel
 import textwrap
 import html
 
-from vital_signs_processor import HealthData
-from recommender import ElderlyActivityRecommender
+from chatbot.recommender import ElderlyActivityRecommender
 from chatbot.rag import rag_answer
 from chatbot.intent_classifier import IntentClassifier
 from chatbot.profile_parser import ProfileParser

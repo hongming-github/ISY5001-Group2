@@ -8,7 +8,6 @@ from streamlit_js_eval import streamlit_js_eval
 import folium
 from folium import IFrame
 from streamlit_folium import st_folium
-import json
 import uuid
 
 BACKEND = "http://fastapi:8000"

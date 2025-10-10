@@ -1,15 +1,11 @@
 from fastapi import FastAPI, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
-from recommendation_model import main as rec_main
 from fastapi.middleware.cors import CORSMiddleware
 from vital_signs_processor import HealthData, process_vital_signs
 from chatbot.chatbot_service import ChatRequest, ChatResponse, handle_chat
 from chatbot.speech2text_service import recognize_speech
-from chatbot.chatbot_service import ChatRequest, ChatResponse, handle_chat, format_recommendations
 from dotenv import load_dotenv
-import os
-#import joblib
 
 app = FastAPI()
 
@@ -29,14 +25,6 @@ app.add_middleware(
 
 # Load .env file automatically
 load_dotenv()
-
-# Load your ML model here
-#model = joblib.load("your_model.joblib")  
-
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
-
 
 #Endpoint to process health data
 @app.post("/submit")
@@ -90,19 +78,3 @@ class RecommendRequest(BaseModel):
     user_lat: float
     user_lon: float
     sourcetypes: Optional[List[str]] = None  # course | event | interest_group
-
-
-@app.post("/recommend")
-async def recommend(req: RecommendRequest):
-    df = rec_main(
-        req.user_interests,
-        req.user_languages,
-        req.user_time_slots,
-        req.user_budget,
-        req.user_need_free,
-        req.user_lat,
-        req.user_lon,
-        req.sourcetypes,
-    )
-    items = df.to_dict(orient="records") if hasattr(df, "to_dict") else []
-    return {"items": items}

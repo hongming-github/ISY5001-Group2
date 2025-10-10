@@ -8,7 +8,6 @@ load_dotenv()
 
 # ---------------- Init Pinecone ----------------
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-
 INDEX_NAME = "health-knowledge-vector"
 
 embeddingModel = "doubao-embedding-text-240715"
@@ -26,7 +25,7 @@ class DoubaoEmbeddings:
     def __init__(self):
         self.client = OpenAI(
             api_key=os.getenv("OPENAI_API_KEY"),
-            base_url="https://ark.cn-beijing.volces.com/api/v3"
+            base_url=os.getenv("OPENAI_API_BASE")
         )
         self.model = embeddingModel
 
