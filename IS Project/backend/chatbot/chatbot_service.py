@@ -161,16 +161,13 @@ def handle_chat(payload):
     print(f"[DEBUG] Intent classifier result: '{intent}'")
 
     if intent == "recommend_activity":
-        profile = context_manager.get_profile(session_id)
-        print(f"[recommendation] Existing profile: {profile}")
+        existing_profile = context_manager.get_profile(session_id)
+        print(f"[recommendation] Existing profile: {existing_profile}")
         # Update profile with parsed info from current message + recent history
-        parsed = profile_parser.parse_user_profile(
+        new_profile = profile_parser.parse_user_profile(
             user_msg, conversation_history=context_manager.get_history(session_id)
         )
-        parsed = profile_parser.enhance_profile_with_location(parsed)
-        if parsed:
-            profile = context_manager.update_profile(session_id, parsed)
-
+        profile = context_manager.update_profile(session_id, new_profile)
         # Check if profile is complete 
         missing_resp = check_missing_profile_fields(profile, session_id, context_manager)
         if missing_resp:
