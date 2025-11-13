@@ -127,12 +127,14 @@ Open your browser → [http://localhost:8501](http://localhost:8501)
 │   │   └── chatbot_service.py   # Hybrid routing logic
 │   ├── recommender.py           # Activity recommendation logic
 │   ├── vital_signs_processor.py # Vital signs handling (optional)
+│   ├── Dockerfile          
+│   ├── requirements.txt   
 │   └── main.py                  # FastAPI entrypoint
 ├── frontend/
+│   ├── Dockerfile          
+│   ├── requirements.txt       
 │   └── streamlit_app.py         # Chat UI with chat-like bubbles
 ├── docker-compose.yml
-├── Dockerfile
-├── requirements.txt
 └── README.md
 ```
 
